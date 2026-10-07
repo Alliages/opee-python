@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.93"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "07/10/2026 23:25"
+    VERSION = "0.94"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "07/10/2026 23:31"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 7 (numérique) : groupe 1 scindé en 1a (dépôt 2022-2023) et 1b (dépôt 2024-2025)"),
+        (VERSION, "Graphique 7 : inversion de l'ordre des graphiques « stock de carbone » et « IC composant lots 3 + 4 + 6 »"),
+        ("0.93", "Graphique 7 (numérique) : groupe 1 scindé en 1a (dépôt 2022-2023) et 1b (dépôt 2024-2025)"),
         ("0.92b", "Correction mineure : graphique 7, « Masquer Autre » placé avec « Valider… » en haut des filtres"),
         ("0.92", "Amélioration visuelle"),
         ("0.91", "Graphique 7 : ajout de nb_ded, ic_ded et ic_composant_lot_8, et exclusion des « Petit logement coll. »"),
@@ -2752,12 +2753,12 @@ def groupes_graphique_7(
         "nb_total_fiche_acv": ("Nombre total de fiches ACV", "fiches"),
         "nb_fdes": ("Nombre de FDES", "fiches"),
         "nb_ded": ("Nombre de DED", "fiches"),
-        "stock_c": ("Stock de carbone", "kg C/m²"),
+        "ic_lots_3_4_6": ("IC composant lots 3 + 4 + 6", "kgeq.CO2/m²"),
         "ic_ded": ("IC DED (DED + valeurs forfaitaires)", "kgeq.CO2/m²"),
         "ic_composant_lot_8": ("IC composant lot 8 (CVC)", "kgeq.CO2/m²"),
         "ratio_baies_sref": ("Surface de baies / sref", "m²/m²"),
         "ratio_baies_murs_sref": ("(Baies + murs) / sref", "m²/m²"),
-        "ic_lots_3_4_6": ("IC composant lots 3 + 4 + 6", "kgeq.CO2/m²"),
+        "stock_c": ("Stock de carbone", "kg C/m²"),
     }
 
 
