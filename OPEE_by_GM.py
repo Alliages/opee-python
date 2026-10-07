@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.92b"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "07/10/2026 23:05"
+    VERSION = "0.93"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "07/10/2026 23:25"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Correction mineure : graphique 7, « Masquer Autre » placé avec « Valider… » en haut des filtres"),
+        (VERSION, "Graphique 7 (numérique) : groupe 1 scindé en 1a (dépôt 2022-2023) et 1b (dépôt 2024-2025)"),
+        ("0.92b", "Correction mineure : graphique 7, « Masquer Autre » placé avec « Valider… » en haut des filtres"),
         ("0.92", "Amélioration visuelle"),
         ("0.91", "Graphique 7 : ajout de nb_ded, ic_ded et ic_composant_lot_8, et exclusion des « Petit logement coll. »"),
         ("0.9", "7 graphiques, version de base publique"),
@@ -2850,7 +2851,10 @@ def graphique_7_numerique(
 ):
     # ============================================================================
     # GRAPHIQUE 7 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
-    # les deux groupes, un panneau par indicateur (échelles indépendantes).
+    # les groupes 1a, 1b et 2, un panneau par indicateur (échelles indépendantes).
+    # Le groupe 1 est scindé selon l'année de dépôt du permis (la plus ancienne du projet,
+    # comme au graphique 5) : 1a = 2022-2023, 1b = 2024-2025. Les bâtiments du groupe 1
+    # déposés une autre année n'apparaissent dans aucun des deux sous-groupes.
     # Point = médiane ; barre d'erreur = de Q1 à Q3 (même lecture que le graphique 4).
     # ============================================================================
 
@@ -2862,11 +2866,34 @@ def graphique_7_numerique(
     # ============================================================================
 
     _USAGE = dropdown_usage.value
-    _COULEURS_GROUPES = ["#79A757", "#A26E2E"]    # groupe 1 (vert), groupe 2 (brun)
+    _ANNEES_1A = [2022, 2023]                      # groupe 1a : années de dépôt du permis
+    _ANNEES_1B = [2024, 2025]                      # groupe 1b
+    # (libellé court de l'axe, libellé complet de la légende, couleur) : 1a, 1b, puis 2
+    _GROUPES = [
+        ("Groupe 1a", f"{NOMS_GROUPES_7[0]} — dépôt {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}", "#79A757"),   # vert
+        ("Groupe 1b", f"{NOMS_GROUPES_7[0]} — dépôt {_ANNEES_1B[0]}-{_ANNEES_1B[-1]}", "#B5D69C"),   # vert clair
+        ("Groupe 2", NOMS_GROUPES_7[1], "#A26E2E"),                                                 # brun
+    ]
     _NB_COLONNES = 3
     _NB_MIN_PAR_GROUPE = 5          # en dessous, le groupe n'est pas tracé pour cet indicateur
     _HAUTEUR_PAR_LIGNE = 330
     _TAILLE_TITRE_GRAPHIQUE = 20
+
+
+    # ============================================================================
+    # 0. SOUS-GROUPES 1a / 1b (année de dépôt la plus ancienne du projet)
+    # ============================================================================
+
+    _annee = pl.col("annees_depot_pc").list.min()
+    _df = DATA_groupes_7.with_columns(
+        pl.when(pl.col("groupe") == NOMS_GROUPES_7[1]).then(pl.lit(_GROUPES[2][1]))
+        .when((pl.col("groupe") == NOMS_GROUPES_7[0]) & _annee.is_in(_ANNEES_1A)).then(pl.lit(_GROUPES[0][1]))
+        .when((pl.col("groupe") == NOMS_GROUPES_7[0]) & _annee.is_in(_ANNEES_1B)).then(pl.lit(_GROUPES[1][1]))
+        .alias("sous_groupe")      # NULL = groupe 1 déposé une autre année : écarté ici
+    )
+    _nb_ecartes = _df.filter(pl.col("sous_groupe").is_null()).height
+    _df = _df.filter(pl.col("sous_groupe").is_not_null())
+    print(f"  groupe 1 hors {_ANNEES_1A + _ANNEES_1B} (écartés du graphique) : {_nb_ecartes}")
 
 
     # ============================================================================
@@ -2875,8 +2902,8 @@ def graphique_7_numerique(
 
     _lignes_stats = []
     for _col, (_libelle, _unite) in INDICATEURS_NUM_7.items():
-        for _groupe in NOMS_GROUPES_7:
-            _v = DATA_groupes_7.filter(pl.col("groupe") == _groupe)[_col].drop_nulls()
+        for _court, _groupe, _couleur in _GROUPES:
+            _v = _df.filter(pl.col("sous_groupe") == _groupe)[_col].drop_nulls()
             _n = _v.len()
             _lignes_stats.append({
                 "indicateur": _col, "libelle": _libelle, "unite": _unite, "groupe": _groupe, "n": _n,
@@ -2907,18 +2934,18 @@ def graphique_7_numerique(
     _legende_deja_vue = set()
     for _i, _col in enumerate(INDICATEURS_NUM_7):
         _r, _c = divmod(_i, _NB_COLONNES)
-        for _k, _groupe in enumerate(NOMS_GROUPES_7):
+        for _court, _groupe, _couleur in _GROUPES:
             _s = _stats.filter((pl.col("indicateur") == _col) & (pl.col("groupe") == _groupe)).row(0, named=True)
             if not _s["trace"]:
                 continue
             _fig.add_trace(
                 go.Scatter(
-                    x=[f"Groupe {_k + 1}<br>n = {_s['n']}"],
+                    x=[f"{_court}<br>n = {_s['n']}"],
                     y=[_s["mediane"]],
                     mode="markers",
-                    marker=dict(size=12, color=_COULEURS_GROUPES[_k], line=dict(color="black", width=1)),
+                    marker=dict(size=12, color=_couleur, line=dict(color="black", width=1)),
                     error_y=dict(
-                        type="data", symmetric=False, thickness=3, width=12, color=_COULEURS_GROUPES[_k],
+                        type="data", symmetric=False, thickness=3, width=12, color=_couleur,
                         array=[_s["q3"] - _s["mediane"]], arrayminus=[_s["mediane"] - _s["q1"]],
                     ),
                     name=_groupe, legendgroup=_groupe, showlegend=_groupe not in _legende_deja_vue,
@@ -2938,7 +2965,7 @@ def graphique_7_numerique(
         title=dict(
             text=(
                 f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
-                f"<sup>Point = médiane ; barre = de Q1 à Q3 (écart au seuil : ic_construction − ic_construction_max_2028)</sup><br>"
+                f"<sup>Point = médiane ; barre = de Q1 à Q3 ; groupe 1 scindé par année de dépôt du permis (1a : {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}, 1b : {_ANNEES_1B[0]}-{_ANNEES_1B[-1]})</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
             font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
