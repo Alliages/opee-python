@@ -2,6 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "libsql-experimental==0.0.55",
+#     "marimo>=0.25.1",
 #     "plotly",
 #     "polars",
 #     "xlsxwriter==3.2.9",
