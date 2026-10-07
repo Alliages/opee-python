@@ -25,6 +25,45 @@ def les_imports():
 
 
 @app.cell(hide_code=True)
+def entete_version(mo):
+    # ============================================================================
+    # CELLULE — En-tête : titre, version, date/heure d'édition + historique.
+    #
+    # À CHAQUE ÉDITION DU FICHIER :
+    #   1. incrémenter VERSION de 0.01 (0.9 -> 0.91 -> 0.92 ...)
+    #   2. mettre à jour DATE_EDITION (date et heure de l'édition, heure de Paris)
+    #   3. AJOUTER EN TÊTE de HISTORIQUE_VERSIONS une ligne ("version", "résumé")
+    #      avec une phrase de synthèse des changements.
+    # ============================================================================
+
+    # ============================================================================
+    # PARAMÈTRES
+    # ============================================================================
+
+    TITRE = "OPEE by GM pour le HUB Bas Carbone"
+    VERSION = "0.9"
+    DATE_EDITION = "07/10/2026 17:24"
+
+    # Historique des versions : la plus récente EN PREMIER
+    HISTORIQUE_VERSIONS = [
+        ("0.9", "7 graphiques, version de base publique"),
+    ]
+
+    # ============================================================================
+    # AFFICHAGE
+    # ============================================================================
+
+    _historique = "\n".join(f"- **{_v}** : {_resume}" for _v, _resume in HISTORIQUE_VERSIONS)
+
+    mo.vstack([
+        mo.md(f"# {TITRE}"),
+        mo.md(f"**Version {VERSION}** — édité le {DATE_EDITION}"),
+        mo.accordion({"Historique des versions": mo.md(_historique)}),  # fermé par défaut
+    ])
+    return
+
+
+@app.cell(hide_code=True)
 def liste_graphiques(mo):
     # ============================================================================
     # CELLULE — Liste des graphiques du dashboard (numéro + titre).
