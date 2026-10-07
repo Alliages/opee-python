@@ -1,0 +1,15 @@
+# Secrets
+.env
+*.token
+
+# Python / marimo
+__pycache__/
+*.pyc
+.venv/
+__marimo__/
+.marimo/
+
+# Exports générés
+*.html
+*.xlsx
+*.zip
