@@ -2,7 +2,6 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "libsql-experimental==0.0.55",
-#     "marimo>=0.25.1",
 #     "plotly",
 #     "polars",
 #     "xlsxwriter==3.2.9",
@@ -42,6 +41,7 @@ def liste_graphiques(mo):
         4: "Q1 / Médiane / Q3 du nombre de fiches (FDES + PEP + DED) par seuil RE2020",
         5: "Écart des bâtiments aux seuils réglementaires (%)",
         6: "Stock de carbone par type de matériau de structure et seuil RE2020",
+        7: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
     }
 
     mo.md(
@@ -453,7 +453,7 @@ def extraction_unique(
     # Colonnes supplémentaires : fiches ACV, stock carbone, surface de baies
     # (surface_baies_rset sert à définir les tranches de taille des logements
     # collectifs, cf. cellule `constantes_filtres`)
-    _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset"]
+    _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset", "surface_murs_rset"]
     # Surfaces totales des zones (table zone_open_data, une ligne par zone)
     _COLS_ZONE = ["misurf_tot", "mbsurf_tot"]
     # Indicateurs et seuils du graphique "écarts aux seuils"
@@ -494,6 +494,7 @@ def extraction_unique(
         "CAST(NULL AS REAL) AS sref",       # remplie ensuite en polars (retrouver_sref)
         "b.zone_climatique",
         "b.dc_materiau_structure",
+        "b.dc_type_structure_principale",
         "b.regle_validation_globale",
         "b.ic_composant",
         *[f"b.{col}" for col in _COLS_LOTS],
@@ -564,7 +565,10 @@ def extraction_unique(
     # Matériau de structure : certaines valeurs contiennent des espaces
     # parasites ("Béton "). Nettoyé UNE FOIS ICI pour que filtres, mappings et
     # regroupements en aval fonctionnent partout de la même façon.
-    _df = _df.with_columns(pl.col("dc_materiau_structure").cast(pl.Utf8).str.strip_chars())
+    _df = _df.with_columns(
+        pl.col("dc_materiau_structure").cast(pl.Utf8).str.strip_chars(),
+        pl.col("dc_type_structure_principale").cast(pl.Utf8).str.strip_chars(),
+    )
 
     # Colonne `sref` : renseignée uniquement pour les LOGEMENTS COLLECTIFS (fonction
     # `retrouver_sref`) ; NULL pour les autres usages. Remplace la colonne vide créée
@@ -623,7 +627,7 @@ def widgets_filtres(
     choix_de_attestation = mo.ui.multiselect(
         options=["DAACT", "PC"], label="choisissez l'attestation", value=["DAACT", "PC"]
     )
-    choix_valide_regles = mo.ui.switch(label="Valider pour regarder seulement les bons batiments ?")
+    choix_valide_regles = mo.ui.switch(label="Valider pour regarder seulement les bons batiments ?", value=True)
 
     # Par défaut TOUT est coché (= pas de filtre) : voir `valeurs_actives`.
     _zones = ["H1a", "H1b", "H1c", "H2a", "H2b", "H2c", "H2d", "H3"]
@@ -631,7 +635,7 @@ def widgets_filtres(
     choix_materiau_structure = mo.ui.multiselect(
         options=MATERIAUX_OPTIONS, value=MATERIAUX_OPTIONS, label="Quels Matériaux"
     )
-    cacher_inconnu = mo.ui.switch(label="Masquer les inconnus ?")
+    cacher_inconnu = mo.ui.switch(label="Masquer les inconnus ?", value=True)
 
     # Surface : DEUX filtres possibles, un seul appliqué à la fois (le choix ci-dessous).
     # Par défaut : sref_approx (tranches), comme avant.
@@ -696,32 +700,105 @@ def rappel_filtre_surface(MODE_SURFACE_SREF, choix_mode_surface, choix_sref, mo)
 
 
 @app.cell(hide_code=True)
-def param_graphique_1(
+def panneau_filtres_def(
+    bloc_filtre_surface,
     cacher_inconnu,
     choix_de_attestation,
     choix_de_la_date,
-    bloc_filtre_surface,
     choix_materiau_structure,
     choix_valide_regles,
     choix_zone_climatique,
     mo,
 ):
+    # ============================================================================
+    # CELLULE — Panneau de filtres, construit UNE fois, répété avant chaque graphique
+    #
+    # Disposition :
+    #   1. Qualité des données (toujours visible, en haut) : règles de validation,
+    #      masquer les inconnus
+    #   2. Trois accordéons FERMÉS côte à côte :
+    #        - Période et lieu : années de dépôt, type d'attestation, zone climatique
+    #        - Bâtiment        : filtre de surface, matériau de structure
+    #        - Graphique N     : paramètres propres au graphique (optionnel)
+    #
+    # Cette cellule ne lit AUCUNE valeur de widget : sa mise en page est statique,
+    # donc modifier un filtre ne referme pas les accordéons ni ne réinitialise les
+    # autres paramètres. Le résumé des filtres actifs (qui, lui, lit les valeurs)
+    # est affiché à part : cf. `resume_filtres` (cellule `filtres_communs`).
+    # ============================================================================
+
+
+    # ============================================================================
+    # PARAMÈTRES
+    # ============================================================================
+
+    _LIBELLE_PERIODE = "Période et lieu"
+    _LIBELLE_BATIMENT = "Bâtiment"
+
+
+    def panneau_filtres(parametres_graphique=None, *, avec_materiau=True, avec_inconnus=True):
+        """Construit le panneau de filtres d'un graphique.
+
+        - parametres_graphique : dict {libellé de l'accordéon: contenu} pour les paramètres
+          propres au graphique (None = pas de 3e accordéon).
+        - avec_materiau=False : graphique où le matériau est l'axe (pas de filtre matériau).
+        - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
+        """
+        # 1. Qualité des données : toujours visible, en haut
+        _qualite = mo.hstack(
+            [choix_valide_regles] + ([cacher_inconnu] if avec_inconnus else []),
+            justify="start", gap=2,
+        )
+
+        # 2. Contenu des accordéons
+        _bloc_periode = mo.vstack([
+            mo.hstack([choix_de_la_date, choix_de_attestation], justify="start", wrap=True),
+            choix_zone_climatique,
+        ])
+        _bloc_batiment = mo.vstack(
+            [bloc_filtre_surface] + ([choix_materiau_structure] if avec_materiau else [])
+        )
+
+        # Accordéons fermés par défaut, côte à côte
+        _accordeons = [
+            mo.accordion({_LIBELLE_PERIODE: _bloc_periode}),
+            mo.accordion({_LIBELLE_BATIMENT: _bloc_batiment}),
+        ]
+        if parametres_graphique:
+            _accordeons.append(mo.accordion(parametres_graphique))
+
+        return mo.vstack([
+            _qualite,
+            mo.hstack(_accordeons, justify="start", align="start", wrap=True, widths="equal"),
+        ])
+
+    return (panneau_filtres,)
+
+
+@app.cell(hide_code=True)
+def param_graphique_1(mo, panneau_filtres):
     # Paramètre propre au graphique 1
     seuil_bas_iccons = mo.ui.slider(start=400, stop=700, step=50, show_value=True, label="La tranche basse de l'ic_construction pour séparer les projets ?")
 
     mo.vstack([
         mo.md("### Paramètres du graphique 1"),
-        choix_valide_regles,
-        seuil_bas_iccons,
-        mo.md("*400 pour le logement 500 pour le reste ?*\n"),
-        choix_zone_climatique,
-        choix_materiau_structure,
-        choix_de_la_date,
-        choix_de_attestation,
-        bloc_filtre_surface,
-        cacher_inconnu,
+        panneau_filtres({
+            "Graphique 1": mo.vstack([
+                seuil_bas_iccons,
+                mo.md("*400 pour le logement 500 pour le reste ?*\n"),
+            ]),
+        }),
     ])
     return (seuil_bas_iccons,)
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_1(resume_filtres):
+    # Résumé des filtres actifs du graphique 1 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres()
+    return
 
 
 @app.cell(hide_code=True)
@@ -992,6 +1069,7 @@ def filtres_communs(
     choix_valide_regles,
     choix_zone_climatique,
     expr_tranche_surface,
+    mo,
     pl,
 ):
     # ============================================================================
@@ -1004,6 +1082,8 @@ def filtres_communs(
     #   - SOUS_TITRE_SANS_MATERIAU : idem sans le matériau (graphique où il est l'axe)
     #   - appliquer_filtres  : fonction (DataFrame -> DataFrame filtré)
     #   - valeurs_actives    : "tout sélectionné = pas de filtre" (réutilisable)
+    #   - resume_filtres     : résumé lisible des filtres actifs (affiché sous le panneau
+    #                          de filtres de chaque graphique)
     #
     # Toute modification d'un widget relance cette cellule, donc tous les
     # graphiques qui en dépendent.
@@ -1068,6 +1148,35 @@ def filtres_communs(
     SOUS_TITRE_SANS_MATERIAU = _sous_titre_sans_materiau
 
 
+    # --- Résumé des filtres actifs, par catégorie (même découpage que le panneau) --
+    def resume_filtres(avec_materiau=True, avec_inconnus=True):
+        """Encadré résumant les filtres actifs, rangés comme dans le panneau.
+        - avec_materiau=False : graphique où le matériau est l'axe (filtre non appliqué).
+        - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus »."""
+        _qualite = [
+            "bâtiments validés seulement" if _VALID_REGLES else "tous les bâtiments (non validés inclus)"
+        ]
+        if avec_inconnus:
+            _qualite.append("« Inconnu » masqués" if _CACHER_INCONNU else "« Inconnu » inclus")
+        _periode = [
+            f"années {_resume(FILTRES['annees'])}",
+            f"attestations {_resume(FILTRES['attestations'])}",
+            f"zones {_resume(FILTRES['zones'])}",
+        ]
+        _batiment = [f"surface ({_texte_surface})"]
+        if avec_materiau:
+            _batiment.append(f"matériaux {_resume(FILTRES['materiaux'], 'tous')}")
+        return mo.callout(
+            mo.md(
+                "**Filtres actifs**  \n"
+                f"**Qualité** : {' · '.join(_qualite)}  \n"
+                f"**Période et lieu** : {' · '.join(_periode)}  \n"
+                f"**Bâtiment** : {' · '.join(_batiment)}"
+            ),
+            kind="neutral",
+        )
+
+
     # --- Filtre matériau : l'option "None" correspond aux matériaux NON renseignés
     # (NULL dans la base ; on accepte aussi un éventuel texte "None").
     def _expr_materiau(selection):
@@ -1125,36 +1234,33 @@ def filtres_communs(
                     print(f"  après filtre {_libelle} : {df.height}")
         return df
 
-    return FILTRES, SOUS_TITRE_FILTRES, SOUS_TITRE_SANS_MATERIAU, appliquer_filtres, valeurs_actives
+    return FILTRES, SOUS_TITRE_FILTRES, SOUS_TITRE_SANS_MATERIAU, appliquer_filtres, resume_filtres, valeurs_actives
 
 
 @app.cell(hide_code=True)
-def param_graphique_2(
-    cacher_inconnu,
-    choix_de_attestation,
-    choix_de_la_date,
-    bloc_filtre_surface,
-    choix_materiau_structure,
-    choix_valide_regles,
-    choix_zone_climatique,
-    mo,
-):
+def param_graphique_2(mo, panneau_filtres):
     # Paramètre propre au graphique 2 (le seul qui utilise les 13 lots)
     valeur_exclusion_lots = mo.ui.range_slider(start=0, stop=500, step=10, value=[0, 300], label="Un lot est compris entre :", show_value=True)
 
     mo.vstack([
         mo.md("### Paramètres du graphique 2"),
-        valeur_exclusion_lots,
-        mo.md("*pour exclure les valeurs anormales (un lot hors de cette plage est ignoré dans la moyenne)*"),
-        choix_zone_climatique,
-        choix_materiau_structure,
-        choix_de_la_date,
-        choix_de_attestation,
-        bloc_filtre_surface,
-        choix_valide_regles,
-        cacher_inconnu,
+        panneau_filtres({
+            "Graphique 2": mo.vstack([
+                valeur_exclusion_lots,
+                mo.md("*pour exclure les valeurs anormales (un lot hors de cette plage est ignoré dans la moyenne)*"),
+            ]),
+        }),
     ])
     return (valeur_exclusion_lots,)
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_2(resume_filtres):
+    # Résumé des filtres actifs du graphique 2 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres()
+    return
 
 
 @app.cell(hide_code=True)
@@ -1376,15 +1482,7 @@ def graphique_2(
 
 
 @app.cell(hide_code=True)
-def param_graphique_3(
-    cacher_inconnu,
-    choix_de_attestation,
-    choix_de_la_date,
-    bloc_filtre_surface,
-    choix_valide_regles,
-    choix_zone_climatique,
-    mo,
-):
+def param_graphique_3(mo, panneau_filtres):
     # ============================================================================
     # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 3.
     # Le matériau n'y figure pas : c'est l'axe du graphique.
@@ -1392,13 +1490,17 @@ def param_graphique_3(
 
     mo.vstack([
         mo.md("### Paramètres du graphique 3"),
-        choix_zone_climatique,
-        choix_de_la_date,
-        choix_de_attestation,
-        bloc_filtre_surface,
-        choix_valide_regles,
-        cacher_inconnu,
+        panneau_filtres(avec_materiau=False),
     ])
+    return
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_3(resume_filtres):
+    # Résumé des filtres actifs du graphique 3 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres(avec_materiau=False)
     return
 
 
@@ -1590,30 +1692,24 @@ def graphique_3(
 
 
 @app.cell(hide_code=True)
-def param_graphique_4(
-    cacher_inconnu,
-    choix_de_attestation,
-    choix_de_la_date,
-    bloc_filtre_surface,
-    choix_materiau_structure,
-    choix_valide_regles,
-    choix_zone_climatique,
-    mo,
-):
+def param_graphique_4(mo, panneau_filtres):
     # ============================================================================
     # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 4.
     # ============================================================================
 
     mo.vstack([
         mo.md("### Paramètres du graphique 4"),
-        choix_zone_climatique,
-        choix_materiau_structure,
-        choix_de_la_date,
-        choix_de_attestation,
-        bloc_filtre_surface,
-        choix_valide_regles,
-        cacher_inconnu,
+        panneau_filtres(),
     ])
+    return
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_4(resume_filtres):
+    # Résumé des filtres actifs du graphique 4 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres()
     return
 
 
@@ -1786,16 +1882,7 @@ def graphique_4(
 
 
 @app.cell(hide_code=True)
-def param_graphique_5(
-    cacher_inconnu,
-    choix_de_attestation,
-    choix_de_la_date,
-    bloc_filtre_surface,
-    choix_materiau_structure,
-    choix_valide_regles,
-    choix_zone_climatique,
-    mo,
-):
+def param_graphique_5(mo, panneau_filtres):
     # ============================================================================
     # CELLULE WIDGET — filtre "seuil RE2020" pour le graphique des écarts
     #
@@ -1812,16 +1899,18 @@ def param_graphique_5(
 
     mo.vstack([
         mo.md("### Paramètres du graphique 5"),
-        choix_seuil,
-        choix_zone_climatique,
-        choix_materiau_structure,
-        choix_de_la_date,
-        choix_de_attestation,
-        bloc_filtre_surface,
-        choix_valide_regles,
-        cacher_inconnu,
+        panneau_filtres({"Graphique 5": choix_seuil}),
     ])
     return (choix_seuil,)
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_5(resume_filtres):
+    # Résumé des filtres actifs du graphique 5 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres()
+    return
 
 
 @app.cell(hide_code=True)
@@ -2164,15 +2253,7 @@ def graphique_5(
 
 
 @app.cell(hide_code=True)
-def param_graphique_6(
-    cacher_inconnu,
-    choix_de_attestation,
-    choix_de_la_date,
-    bloc_filtre_surface,
-    choix_valide_regles,
-    choix_zone_climatique,
-    mo,
-):
+def param_graphique_6(mo, panneau_filtres):
     # ============================================================================
     # CELLULE WIDGET — paramètres propres au graphique 6 (stock C) :
     #   - filtre "seuil RE2020" (tout coché par défaut = tous les seuils)
@@ -2193,16 +2274,21 @@ def param_graphique_6(
 
     mo.vstack([
         mo.md("### Paramètres du graphique 6"),
-        choix_seuil_stock_c,
-        choix_y_max_stock_c,
-        choix_zone_climatique,
-        choix_de_la_date,
-        choix_de_attestation,
-        bloc_filtre_surface,
-        choix_valide_regles,
-        cacher_inconnu,
+        panneau_filtres(
+            {"Graphique 6": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
+            avec_materiau=False,
+        ),
     ])
     return choix_seuil_stock_c, choix_y_max_stock_c
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_6(resume_filtres):
+    # Résumé des filtres actifs du graphique 6 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres(avec_materiau=False)
+    return
 
 
 @app.cell(hide_code=True)
@@ -2403,6 +2489,415 @@ def graphique_6(
     # Export : statistiques de chaque boîte (toutes les combinaisons, avec un
     # indicateur `boite_affichee` pour celles masquées faute d'effectif)
     mo.vstack([_graphique, boutons_export(_agg, "graphique_6_stock_c_par_materiau_et_seuil")])
+    return
+
+
+@app.cell(hide_code=True)
+def param_graphique_7(mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE WIDGET — paramètres propres au graphique 7 (éloignement au seuil
+    # IC Construction 2028, logements collectifs).
+    #   - écart maximal au-dessus du seuil 2028 qui reste dans le groupe 1
+    #   - variable catégorielle comparée (barres 100 % empilées)
+    #   - option pour masquer « Autre » / non renseigné
+    # Le matériau de structure n'est pas un filtre ici : c'est une variable comparée.
+    # « Masquer les inconnus » n'est pas appliqué non plus (cf. cellule des groupes).
+    # ============================================================================
+
+    choix_ecart_max_2028 = mo.ui.slider(
+        start=0, stop=100, step=5, value=20, show_value=True,
+        label="Groupe 1 : écart maximal AU-DESSUS du seuil 2028 (kgeq.CO2/m²)",
+    )
+
+    choix_variable_categorielle_7 = mo.ui.dropdown(
+        options={
+            "Zone climatique": "zone_climatique",
+            "Type de structure principale": "dc_type_structure_principale",
+            "Matériau de structure": "dc_materiau_structure",
+        },
+        value="Zone climatique",
+        label="Variable catégorielle comparée",
+    )
+
+    cacher_autre_7 = mo.ui.switch(
+        value=True, label="Masquer « Autre » / non renseigné (variables dc_*, peu fiables)",
+    )
+
+    mo.vstack([
+        mo.md("### Paramètres du graphique 7"),
+        panneau_filtres(
+            {"Graphique 7": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7, cacher_autre_7])},
+            avec_materiau=False, avec_inconnus=False,
+        ),
+    ])
+    return cacher_autre_7, choix_ecart_max_2028, choix_variable_categorielle_7
+
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_7(resume_filtres):
+    # Résumé des filtres actifs du graphique 7 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres(avec_materiau=False, avec_inconnus=False)
+    return
+
+
+@app.cell(hide_code=True)
+def groupes_graphique_7(
+    DATA_brut,
+    SREF_MAX_SLIDER,
+    USAGE_LOGEMENT_COLLECTIF,
+    appliquer_filtres,
+    choix_ecart_max_2028,
+    dropdown_usage,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Constitution des 2 groupes du graphique 7 (aucun appel réseau)
+    #
+    # Éloignement au seuil 2028, propre à CHAQUE bâtiment :
+    #     ecart_2028 = ic_construction - ic_construction_max_2028
+    #   (négatif ou nul = seuil 2028 respecté ; positif = au-dessus du seuil)
+    #
+    #   Groupe 1 : ecart_2028 <= ECART_MAX  -> bâtiments conformes 2028 / 2031
+    #              + bâtiments au-dessus du seuil 2028 d'au plus ECART_MAX
+    #   Groupe 2 : ecart_2028 >  ECART_MAX  -> tous les autres
+    #
+    # Les conformes 2031 sont inclus d'office : le seuil 2031 est plus strict que 2028.
+    # Fournit DATA_groupes_7 (une ligne par bâtiment, indicateurs calculés inclus),
+    # INDICATEURS_NUM_7 (indicateurs numériques comparés) et NOMS_GROUPES_7.
+    # ============================================================================
+
+
+    # ============================================================================
+    # PARAMÈTRES (toutes les variables au même endroit)
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+    _ECART_MAX = choix_ecart_max_2028.value                 # kgeq.CO2/m², au-dessus du seuil 2028
+    _SREF_PLATEAU = SREF_MAX_SLIDER                         # sref >= 4000 est renvoyé = 5000 par
+                                                            # `retrouver_sref` : valeur-plafond, pas une surface réelle
+    _COL_IC = "ic_construction"
+    _COL_SEUIL_2028 = "ic_construction_max_2028"
+    _LOTS_SOMMES = ["ic_composant_lot_3", "ic_composant_lot_4", "ic_composant_lot_6"]
+
+    NOMS_GROUPES_7 = [
+        f"Groupe 1 : conforme ou ≤ {_ECART_MAX} au-dessus du seuil 2028",
+        f"Groupe 2 : > {_ECART_MAX} au-dessus du seuil 2028",
+    ]
+
+    # Indicateurs numériques comparés : colonne -> (libellé, unité)
+    INDICATEURS_NUM_7 = {
+        "nb_total_fiche_acv": ("Nombre total de fiches ACV", "fiches"),
+        "nb_fdes": ("Nombre de FDES", "fiches"),
+        "stock_c": ("Stock de carbone", "kg C/m²"),
+        "ratio_baies_sref": ("Surface de baies / sref", "m²/m²"),
+        "ratio_baies_murs_sref": ("(Baies + murs) / sref", "m²/m²"),
+        "ic_lots_3_4_6": ("IC composant lots 3 + 4 + 6", "kgeq.CO2/m²"),
+    }
+
+
+    # ============================================================================
+    # 1. LOGEMENTS COLLECTIFS UNIQUEMENT
+    # ============================================================================
+
+    mo.stop(
+        _USAGE != USAGE_LOGEMENT_COLLECTIF,
+        mo.md(f"**Graphique 7 : réservé aux logements collectifs** (l'usage choisi est « {_USAGE} »)."),
+    )
+
+
+    # ============================================================================
+    # 2. FILTRAGE (le matériau est comparé, donc non filtré ; « Inconnu » concerne le
+    #    seuil atteint, sans rapport avec l'écart au seuil 2028)
+    # ============================================================================
+
+    _df = appliquer_filtres(DATA_brut, filtre_materiau=False, filtre_inconnu=False)
+
+    # Colonnes numériques lues en flottants (valeurs absentes -> NULL)
+    _cols_num = [
+        _COL_IC, _COL_SEUIL_2028, "sref", "surface_baies_rset", "surface_murs_rset",
+        "nb_total_fiche_acv", "nb_fdes", "stock_c", *_LOTS_SOMMES,
+    ]
+    _df = _df.with_columns([pl.col(_c).cast(pl.Float64, strict=False) for _c in _cols_num])
+
+    # Il faut l'IC construction ET un seuil 2028 strictement positif
+    _avant = _df.height
+    _df = _df.filter(
+        pl.col(_COL_IC).is_not_null()
+        & pl.col(_COL_SEUIL_2028).is_not_null()
+        & (pl.col(_COL_SEUIL_2028) > 0)
+    )
+    print(f"  avec ic_construction et seuil 2028 renseignés : {_df.height} / {_avant}")
+
+    mo.stop(_df.height == 0, mo.md("**Aucun bâtiment avec ic_construction et seuil 2028 pour ces filtres.**"))
+
+
+    # ============================================================================
+    # 3. ÉCART AU SEUIL 2028, GROUPES ET INDICATEURS CALCULÉS
+    # ============================================================================
+
+    # sref exploitable : renseigné, > 0 et différent de la valeur-plafond
+    _sref_ok = pl.col("sref").is_not_null() & (pl.col("sref") > 0) & (pl.col("sref") < _SREF_PLATEAU)
+    _baies = pl.col("surface_baies_rset")
+    _murs = pl.col("surface_murs_rset")
+
+    DATA_groupes_7 = _df.with_columns(
+        (pl.col(_COL_IC) - pl.col(_COL_SEUIL_2028)).alias("ecart_2028"),
+    ).with_columns(
+        pl.when(pl.col("ecart_2028") <= _ECART_MAX)
+        .then(pl.lit(NOMS_GROUPES_7[0]))
+        .otherwise(pl.lit(NOMS_GROUPES_7[1]))
+        .alias("groupe"),
+        # Ratios : NULL si sref inexploitable ou si une surface manque (jamais 0 par défaut)
+        pl.when(_sref_ok & _baies.is_not_null()).then(_baies / pl.col("sref")).alias("ratio_baies_sref"),
+        pl.when(_sref_ok & _baies.is_not_null() & _murs.is_not_null())
+        .then((_baies + _murs) / pl.col("sref")).alias("ratio_baies_murs_sref"),
+        # Somme des 3 lots : NULL si UN des lots manque (sum_horizontal ignorerait les NULL)
+        pl.when(pl.all_horizontal([pl.col(_c).is_not_null() for _c in _LOTS_SOMMES]))
+        .then(pl.sum_horizontal(_LOTS_SOMMES)).alias("ic_lots_3_4_6"),
+    )
+
+    _effectifs = DATA_groupes_7.group_by("groupe").len().sort("groupe")
+    print("  effectifs :", {r["groupe"]: r["len"] for r in _effectifs.iter_rows(named=True)})
+    print(f"  sref exploitable (ratios) : {DATA_groupes_7.select(_sref_ok.sum()).item()} / {DATA_groupes_7.height}")
+
+    return DATA_groupes_7, INDICATEURS_NUM_7, NOMS_GROUPES_7
+
+
+@app.cell(hide_code=True)
+def graphique_7_numerique(
+    DATA_groupes_7,
+    GRAPHIQUES,
+    INDICATEURS_NUM_7,
+    NOMS_GROUPES_7,
+    SOUS_TITRE_SANS_MATERIAU,
+    boutons_export,
+    dropdown_usage,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # GRAPHIQUE 7 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
+    # les deux groupes, un panneau par indicateur (échelles indépendantes).
+    # Point = médiane ; barre d'erreur = de Q1 à Q3 (même lecture que le graphique 4).
+    # ============================================================================
+
+    from plotly.subplots import make_subplots as _make_subplots
+
+
+    # ============================================================================
+    # PARAMÈTRES
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+    _COULEURS_GROUPES = ["#79A757", "#A26E2E"]    # groupe 1 (vert), groupe 2 (brun)
+    _NB_COLONNES = 3
+    _NB_MIN_PAR_GROUPE = 5          # en dessous, le groupe n'est pas tracé pour cet indicateur
+    _HAUTEUR_PAR_LIGNE = 330
+    _TAILLE_TITRE_GRAPHIQUE = 20
+
+
+    # ============================================================================
+    # 1. STATISTIQUES PAR (indicateur, groupe)
+    # ============================================================================
+
+    _lignes_stats = []
+    for _col, (_libelle, _unite) in INDICATEURS_NUM_7.items():
+        for _groupe in NOMS_GROUPES_7:
+            _v = DATA_groupes_7.filter(pl.col("groupe") == _groupe)[_col].drop_nulls()
+            _n = _v.len()
+            _lignes_stats.append({
+                "indicateur": _col, "libelle": _libelle, "unite": _unite, "groupe": _groupe, "n": _n,
+                "q1": _v.quantile(0.25) if _n else None,
+                "mediane": _v.median() if _n else None,
+                "moyenne": _v.mean() if _n else None,
+                "q3": _v.quantile(0.75) if _n else None,
+                "trace": _n >= _NB_MIN_PAR_GROUPE,
+            })
+    _stats = pl.DataFrame(_lignes_stats, infer_schema_length=None)
+
+    mo.stop(_stats.filter(pl.col("trace")).height == 0,
+            mo.md(f"**Aucun groupe n'a au moins {_NB_MIN_PAR_GROUPE} bâtiments pour un indicateur.**"))
+
+
+    # ============================================================================
+    # 2. GRAPHIQUE
+    # ============================================================================
+
+    _nb_ind = len(INDICATEURS_NUM_7)
+    _nb_lignes = -(-_nb_ind // _NB_COLONNES)      # division entière par excès
+    _fig = _make_subplots(
+        rows=_nb_lignes, cols=_NB_COLONNES,
+        subplot_titles=[f"{_l} ({_u})" for _l, _u in INDICATEURS_NUM_7.values()],
+        vertical_spacing=0.2, horizontal_spacing=0.08,
+    )
+
+    _legende_deja_vue = set()
+    for _i, _col in enumerate(INDICATEURS_NUM_7):
+        _r, _c = divmod(_i, _NB_COLONNES)
+        for _k, _groupe in enumerate(NOMS_GROUPES_7):
+            _s = _stats.filter((pl.col("indicateur") == _col) & (pl.col("groupe") == _groupe)).row(0, named=True)
+            if not _s["trace"]:
+                continue
+            _fig.add_trace(
+                go.Scatter(
+                    x=[f"Groupe {_k + 1}<br>n = {_s['n']}"],
+                    y=[_s["mediane"]],
+                    mode="markers",
+                    marker=dict(size=12, color=_COULEURS_GROUPES[_k], line=dict(color="black", width=1)),
+                    error_y=dict(
+                        type="data", symmetric=False, thickness=3, width=12, color=_COULEURS_GROUPES[_k],
+                        array=[_s["q3"] - _s["mediane"]], arrayminus=[_s["mediane"] - _s["q1"]],
+                    ),
+                    name=_groupe, legendgroup=_groupe, showlegend=_groupe not in _legende_deja_vue,
+                    hovertemplate=(
+                        f"<b>{_groupe}</b><br>n = {_s['n']}<br>Q1 = {_s['q1']:.3g}<br>"
+                        f"Médiane = {_s['mediane']:.3g}<br>Q3 = {_s['q3']:.3g}<br>"
+                        f"Moyenne = {_s['moyenne']:.3g}<extra></extra>"
+                    ),
+                ),
+                row=_r + 1, col=_c + 1,
+            )
+            _legende_deja_vue.add(_groupe)
+
+    _fig.update_layout(
+        template="plotly_white",
+        height=_HAUTEUR_PAR_LIGNE * _nb_lignes + 200,
+        title=dict(
+            text=(
+                f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
+                f"<sup>Point = médiane ; barre = de Q1 à Q3 (écart au seuil : ic_construction − ic_construction_max_2028)</sup><br>"
+                f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
+            ),
+            font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
+        ),
+        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.08, yanchor="top"),
+        margin=dict(t=170, b=100, l=60, r=20),
+    )
+
+    _graphique = mo.ui.plotly(_fig)
+
+    # Export : statistiques de chaque (indicateur, groupe), avec l'indicateur `trace`
+    mo.vstack([_graphique, boutons_export(_stats, "graphique_7_stats_par_groupe")])
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_7_categoriel(
+    DATA_groupes_7,
+    GRAPHIQUES,
+    NOMS_GROUPES_7,
+    SOUS_TITRE_SANS_MATERIAU,
+    boutons_export,
+    cacher_autre_7,
+    choix_variable_categorielle_7,
+    dropdown_usage,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # GRAPHIQUE 7 (partie catégorielle) — Répartition (%) d'une variable catégorielle
+    # dans chaque groupe : barres 100 % empilées, une barre par groupe.
+    # Variables : zone climatique, type de structure principale, matériau de structure.
+    # ============================================================================
+
+
+    # ============================================================================
+    # PARAMÈTRES
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+    _VARIABLE = choix_variable_categorielle_7.value
+    _LIBELLE_VARIABLE = choix_variable_categorielle_7.selected_key
+    _CACHER_AUTRE = cacher_autre_7.value
+    _LIBELLE_NON_RENSEIGNE = "Non renseigné"
+    _MODALITES_MASQUEES = ["Autre", _LIBELLE_NON_RENSEIGNE, "None", ""]
+    _SEUIL_TEXTE_PCT = 4            # sous ce pourcentage, pas d'étiquette dans le segment
+    _COULEURS = [
+        "#79A757", "#B0A99F", "#A26E2E", "#475F8F", "#E2ADF2",
+        "#B58BEA", "#574AE2", "#E8C66A", "#C0504D", "#4BACC6",
+    ]
+    _TAILLE_TITRE_GRAPHIQUE = 20
+
+
+    # ============================================================================
+    # 1. MODALITÉS (valeurs absentes -> « Non renseigné »), PUIS % PAR GROUPE
+    # ============================================================================
+
+    _df = DATA_groupes_7.with_columns(
+        pl.col(_VARIABLE).cast(pl.Utf8).str.strip_chars().fill_null(_LIBELLE_NON_RENSEIGNE).alias("modalite")
+    )
+    if _CACHER_AUTRE:
+        _df = _df.filter(~pl.col("modalite").is_in(_MODALITES_MASQUEES))
+
+    mo.stop(_df.height == 0, mo.md("**Aucun bâtiment avec une valeur renseignée pour cette variable.**"))
+
+    _n_par_groupe = _df.group_by("groupe").len().rename({"len": "n_groupe"})
+    _agg = (
+        _df.group_by(["groupe", "modalite"]).len().rename({"len": "n"})
+        .join(_n_par_groupe, on="groupe")
+        .with_columns((100 * pl.col("n") / pl.col("n_groupe")).alias("part_pct"))
+    )
+
+    # Modalités triées par effectif total décroissant (les plus fréquentes en bas)
+    _ordre = (
+        _df.group_by("modalite").len().sort("len", descending=True)["modalite"].to_list()
+    )
+
+
+    # ============================================================================
+    # 2. GRAPHIQUE
+    # ============================================================================
+
+    _fig = go.Figure()
+    _x_groupes = [
+        f"Groupe {_k + 1}<br>n = {_n_par_groupe.filter(pl.col('groupe') == _g)['n_groupe'].item()}"
+        for _k, _g in enumerate(NOMS_GROUPES_7)
+        if _g in _n_par_groupe["groupe"].to_list()
+    ]
+    _groupes_presents = [_g for _g in NOMS_GROUPES_7 if _g in _n_par_groupe["groupe"].to_list()]
+
+    for _j, _modalite in enumerate(_ordre):
+        _parts, _ns = [], []
+        for _g in _groupes_presents:
+            _ligne = _agg.filter((pl.col("groupe") == _g) & (pl.col("modalite") == _modalite))
+            _parts.append(_ligne["part_pct"].item() if _ligne.height else 0.0)
+            _ns.append(_ligne["n"].item() if _ligne.height else 0)
+        _fig.add_trace(go.Bar(
+            x=_x_groupes, y=_parts, name=_modalite,
+            marker_color=_COULEURS[_j % len(_COULEURS)],
+            text=[f"{_p:.0f} %" if _p >= _SEUIL_TEXTE_PCT else "" for _p in _parts],
+            textposition="inside",
+            customdata=_ns,
+            hovertemplate=f"<b>{_modalite}</b><br>%{{y:.1f}} % (n = %{{customdata}})<extra></extra>",
+        ))
+
+    _note_masque = " — « Autre » / non renseigné masqués" if _CACHER_AUTRE else ""
+    _fig.update_layout(
+        template="plotly_white",
+        barmode="stack",
+        height=560,
+        title=dict(
+            text=(
+                f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
+                f"<sup>Répartition : {_LIBELLE_VARIABLE}{_note_masque}</sup><br>"
+                f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
+            ),
+            font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
+        ),
+        yaxis=dict(title="Part du groupe (%)", range=[0, 100]),
+        legend=dict(title=_LIBELLE_VARIABLE, orientation="v"),
+        margin=dict(t=170, b=80, l=60, r=20),
+    )
+
+    _graphique = mo.ui.plotly(_fig)
+
+    # Export : effectif et part de chaque modalité dans chaque groupe
+    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_7_repartition_categorielle")])
     return
 
 
