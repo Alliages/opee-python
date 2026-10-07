@@ -15,52 +15,165 @@ app = marimo.App(width="medium", auto_download=["html"])
 
 
 @app.cell(hide_code=True)
-def les_imports():
+def entete_et_imports():
+    # ---- Imports (partagés par tout le notebook) ----------------------------
     import marimo as mo
     import plotly.express as px
     import plotly.graph_objects as go
     import polars as pl
 
-    return go, mo, pl, px
-
-
-@app.cell(hide_code=True)
-def entete_version(mo):
     # ============================================================================
-    # CELLULE — En-tête : titre, version, date/heure d'édition + historique.
+    # CELLULE — En-tête : visuel HUB, version, date/heure d'édition + historique.
     #
     # À CHAQUE ÉDITION DU FICHIER :
-    #   1. incrémenter VERSION de 0.01 (0.9 -> 0.91 -> 0.92 ...)
+    #   1. incrémenter VERSION de 0.01 (0.9 -> 0.91 -> 0.92 -> 0.93 ...)
     #   2. mettre à jour DATE_EDITION (date et heure de l'édition, heure de Paris)
     #   3. AJOUTER EN TÊTE de HISTORIQUE_VERSIONS une ligne ("version", "résumé")
     #      avec une phrase de synthèse des changements.
     # ============================================================================
 
-    # ============================================================================
-    # PARAMÈTRES
-    # ============================================================================
-
-    TITRE = "OPEE by GM pour le HUB Bas Carbone"
-    VERSION = "0.9"
-    DATE_EDITION = "07/10/2026 17:24"
-
-    # Historique des versions : la plus récente EN PREMIER
+    # ---- Variables (regroupées en début de cellule) -----------------------
+    TITRE = "Analyse des projets RE2020"
+    BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
+    SIGNATURE = "des prescripteurs bas carbone"
+    VERSION = "0.92"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "07/10/2026 22:40"
     HISTORIQUE_VERSIONS = [
+        # (version, synthèse des changements), la plus récente en premier
+        (VERSION, "Amélioration visuelle"),
+        ("0.91", "Graphique 7 : ajout de nb_ded, ic_ded et ic_composant_lot_8, et exclusion des « Petit logement coll. »"),
         ("0.9", "7 graphiques, version de base publique"),
     ]
 
-    # ============================================================================
-    # AFFICHAGE
-    # ============================================================================
+    # Palette du HUB (relevée sur le visuel du webinaire)
+    JAUNE = "#FDB913"         # jaune du logo HUB
+    JAUNE_CLAIR = "#FBBF4D"   # bande diagonale à gauche
+    ORANGE = "#EE7D00"        # bandeau du titre
+    NOIR = "#000000"
 
-    _historique = "\n".join(f"- **{_v}** : {_resume}" for _v, _resume in HISTORIQUE_VERSIONS)
+    # Logos (hébergés par l'IFPEB)
+    URL_LOGO_HUB = "https://www.ifpeb.fr/wp-content/uploads/2026/10/HUB-BC-ST_logo.png"
+    URL_LOGO_IFPEB = "https://www.ifpeb.fr/wp-content/uploads/2026/10/ifpeb_logo.jpg"
+    URL_LOGO_CARBONE4 = "https://www.ifpeb.fr/wp-content/uploads/2026/10/carbone4_logo.jpg"
+    ECHELLE_LOGO_IFPEB = 0.7  # 1 = taille initiale
 
-    mo.vstack([
-        mo.md(f"# {TITRE}"),
-        mo.md(f"**Version {VERSION}** — édité le {DATE_EDITION}"),
-        mo.accordion({"Historique des versions": mo.md(_historique)}),  # fermé par défaut
-    ])
-    return
+    # Liens vers le HUB des prescripteurs bas carbone
+    URL_HUB = "https://www.ifpeb.fr/nos-expertises/la-technique/le-hub-des-prescripteurs-bas-carbone/"
+    URL_RESSOURCES_HUB = "https://www.ifpeb.fr/ressources/?categories=bas-carbone-economie-circulaire"
+    URL_OPEE = "https://www.data.gouv.fr/datasets/opee-observatoire-des-performances-energetiques-et-environnementales-des-batiments-neufs"
+    LIENS = [
+        ("HUB des prescripteurs bas carbone", URL_HUB),
+        ("Ressources du HUB", URL_RESSOURCES_HUB),
+        ("Données OPEE (data.gouv.fr)", URL_OPEE),
+    ]
+
+    # Textes explicatifs (une ligne chacun)
+    TXT_OPEE = (
+        "<b>OPEE</b> : l'Observatoire des Performances Énergétiques et "
+        "Environnementales des bâtiments neufs, la base ouverte des données "
+        "RE2020 (énergie, carbone, confort d'été) des projets déposés."
+    )
+    TXT_BASE_FILLE = (
+        "<b>La base fille (BF)</b> : seconde base, consolidée par le CSTB pour la DGALN/DHUP "
+        "à partir de la « base mère » (import brut des données saisies dans le modèle RSEE)."
+    )
+
+    # ---- Visuel d'en-tête : un seul SVG (viewBox 1000 x 500) qui s'adapte à la largeur ----
+    # Largeur fixe en px + max-width:100% : fonctionne même si marimo place le HTML
+    # dans un conteneur « shrink-to-fit » (c'est ce qui rendait le visuel invisible).
+    _visuel = f"""
+    <div style="width:960px;max-width:100%;border-radius:14px;overflow:hidden;line-height:0;">
+    <svg viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg"
+         style="display:block;width:100%;height:auto;background:#fff;
+                font-family:Calibri,'Segoe UI',Arial,sans-serif;">
+
+      <!-- bande jaune diagonale (gauche) -->
+      <polygon points="0,0 30,0 115,500 0,500" fill="{JAUNE_CLAIR}"/>
+
+      <!-- zone noire : colonne droite + biseau du bas -->
+      <polygon points="850,0 1000,0 1000,500 115,500 805,355 850,355" fill="{NOIR}"/>
+
+      <!-- grand « HUB » vertical -->
+      <g fill="#fff" font-family="'Arial Black',Arial,sans-serif" font-weight="900"
+         font-size="140" text-anchor="middle">
+        <text x="925" y="122">H</text>
+        <text x="925" y="237">U</text>
+        <text x="925" y="352">B</text>
+      </g>
+
+      <!-- logo HUB -->
+      <image href="{URL_LOGO_HUB}" x="345" y="0" width="130" height="165"
+             preserveAspectRatio="xMidYMin meet"/>
+
+      <!-- baseline, juste sous le logo HUB -->
+      <g font-size="14.5" font-weight="700" text-anchor="middle" letter-spacing="0.6">
+        <text x="410" y="{BASELINE_Y}">LA PLATEFORME DE COLLABORATION POUR</text>
+        <text x="410" y="{BASELINE_Y + 20}">DÉTECTER, SUSCITER ET METTRE EN ŒUVRE DES</text>
+        <text x="410" y="{BASELINE_Y + 40}">SOLUTIONS BAS CARBONE POUR LE BÂTIMENT</text>
+      </g>
+
+      <!-- bandeau orange : titre seul -->
+      <rect x="137" y="240" width="546" height="80" fill="{ORANGE}"/>
+      <text x="410" y="294" fill="#fff" text-anchor="middle" font-size="38" font-weight="800"
+            stroke="#fff" stroke-width="1">{TITRE}</text>
+
+      <!-- logos IFPEB (à gauche) et Carbone 4 (à droite), inclinés comme le biseau noir -->
+      <g transform="translate(190 476) rotate(-11)">
+        <image href="{URL_LOGO_IFPEB}" x="-20" y="{-65 * ECHELLE_LOGO_IFPEB}"
+               width="{150 * ECHELLE_LOGO_IFPEB}" height="{65 * ECHELLE_LOGO_IFPEB}"
+               preserveAspectRatio="xMinYMax meet"/>
+        <image href="{URL_LOGO_CARBONE4}" x="100" y="-55" width="220" height="55"
+               preserveAspectRatio="xMinYMax meet"/>
+      </g>
+
+      <!-- signature en bas à droite -->
+      <text x="950" y="488" fill="#fff" font-family="Arial,sans-serif" font-weight="700"
+            font-size="31" text-anchor="end">{SIGNATURE}</text>
+    </svg>
+    </div>"""
+
+
+    # ---- Deux encarts numérotés (lisibles en thème clair comme sombre) ----
+    def _carte(numero, texte):
+        return f"""
+        <div style="flex:1;min-width:260px;display:flex;gap:14px;align-items:flex-start;
+                    padding:16px 18px;border-radius:12px;
+                    background:rgba(253,185,19,.14);border:1px solid rgba(253,185,19,.55);">
+          <div style="flex:none;width:30px;height:30px;border-radius:50%;
+                      background:{ORANGE};color:#fff;font-weight:700;
+                      display:flex;align-items:center;justify-content:center;">{numero}</div>
+          <div style="font-size:14px;line-height:1.45;">{texte}</div>
+        </div>"""
+
+
+    _cartes = f"""
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;">
+      {_carte(1, TXT_OPEE)}
+      {_carte(2, TXT_BASE_FILLE)}
+    </div>"""
+
+    # ---- Rangée de liens vers le HUB (flèches ➔) ----
+    _liens = "".join(
+        f'<a href="{_url}" target="_blank" rel="noopener" '
+        f'style="text-decoration:none;font-weight:600;font-size:13px;'
+        f'padding:7px 14px;border-radius:999px;color:{ORANGE};'
+        f'border:1.5px solid {ORANGE};">➔ {_nom}</a>'
+        for _nom, _url in LIENS
+    )
+    _rangee_liens = (
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;">{_liens}</div>'
+    )
+    _version = (
+        f'<div style="font-size:12px;opacity:.65;margin-top:8px;">'
+        f'Version {VERSION} · édité le {DATE_EDITION}</div>'
+    )
+
+    # ---- Historique des versions, masqué dans un accordéon ----
+    _lignes = "\n".join(f"- **{_v}** · {_t}" for _v, _t in HISTORIQUE_VERSIONS)
+    _historique = mo.accordion({"Historique des versions": mo.md(_lignes)})
+
+    mo.vstack([mo.Html(_visuel + _version + _cartes + _rangee_liens), _historique])
+    return go, mo, pl, px
 
 
 @app.cell(hide_code=True)
