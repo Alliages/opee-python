@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.92"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "07/10/2026 22:40"
+    VERSION = "0.92b"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "07/10/2026 23:05"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Amélioration visuelle"),
+        (VERSION, "Correction mineure : graphique 7, « Masquer Autre » placé avec « Valider… » en haut des filtres"),
+        ("0.92", "Amélioration visuelle"),
         ("0.91", "Graphique 7 : ajout de nb_ded, ic_ded et ic_composant_lot_8, et exclusion des « Petit logement coll. »"),
         ("0.9", "7 graphiques, version de base publique"),
     ]
@@ -888,17 +889,19 @@ def panneau_filtres_def(
     _LIBELLE_BATIMENT = "Bâtiment"
 
 
-    def panneau_filtres(parametres_graphique=None, *, avec_materiau=True, avec_inconnus=True):
+    def panneau_filtres(parametres_graphique=None, *, avec_materiau=True, avec_inconnus=True, bascules_graphique=()):
         """Construit le panneau de filtres d'un graphique.
 
         - parametres_graphique : dict {libellé de l'accordéon: contenu} pour les paramètres
           propres au graphique (None = pas de 3e accordéon).
         - avec_materiau=False : graphique où le matériau est l'axe (pas de filtre matériau).
         - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
+        - bascules_graphique : switchs propres au graphique, ajoutés dans la rangée du haut
+          (à côté de « Valider… » et « Masquer les inconnus »).
         """
         # 1. Qualité des données : toujours visible, en haut
         _qualite = mo.hstack(
-            [choix_valide_regles] + ([cacher_inconnu] if avec_inconnus else []),
+            [choix_valide_regles] + ([cacher_inconnu] if avec_inconnus else []) + list(bascules_graphique),
             justify="start", gap=2,
         )
 
@@ -1200,6 +1203,7 @@ def constantes_filtres(pl):
         MODE_SURFACE_SREF_APPROX,
         SREF_MAX_SLIDER,
         SREF_PAS_SLIDER,
+        TRANCHES_LOGEMENT_COLLECTIF,
         USAGE_LOGEMENT_COLLECTIF,
         expr_tranche_surface,
         options_surface,
@@ -2678,8 +2682,9 @@ def param_graphique_7(mo, panneau_filtres):
     mo.vstack([
         mo.md("### Paramètres du graphique 7"),
         panneau_filtres(
-            {"Graphique 7": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7, cacher_autre_7])},
+            {"Graphique 7": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
             avec_materiau=False, avec_inconnus=False,
+            bascules_graphique=[cacher_autre_7],       # rangée du haut, avec « Valider… »
         ),
     ])
     return cacher_autre_7, choix_ecart_max_2028, choix_variable_categorielle_7
@@ -2698,6 +2703,7 @@ def resume_filtres_graphique_7(resume_filtres):
 def groupes_graphique_7(
     DATA_brut,
     SREF_MAX_SLIDER,
+    TRANCHES_LOGEMENT_COLLECTIF,
     USAGE_LOGEMENT_COLLECTIF,
     appliquer_filtres,
     choix_ecart_max_2028,
@@ -2733,6 +2739,7 @@ def groupes_graphique_7(
     _COL_IC = "ic_construction"
     _COL_SEUIL_2028 = "ic_construction_max_2028"
     _LOTS_SOMMES = ["ic_composant_lot_3", "ic_composant_lot_4", "ic_composant_lot_6"]
+    _TRANCHE_EXCLUE = TRANCHES_LOGEMENT_COLLECTIF[0]        # "Petit logement coll." : retiré des 2 groupes
 
     NOMS_GROUPES_7 = [
         f"Groupe 1 : conforme ou ≤ {_ECART_MAX} au-dessus du seuil 2028",
@@ -2743,7 +2750,10 @@ def groupes_graphique_7(
     INDICATEURS_NUM_7 = {
         "nb_total_fiche_acv": ("Nombre total de fiches ACV", "fiches"),
         "nb_fdes": ("Nombre de FDES", "fiches"),
+        "nb_ded": ("Nombre de DED", "fiches"),
         "stock_c": ("Stock de carbone", "kg C/m²"),
+        "ic_ded": ("IC DED (DED + valeurs forfaitaires)", "kgeq.CO2/m²"),
+        "ic_composant_lot_8": ("IC composant lot 8 (CVC)", "kgeq.CO2/m²"),
         "ratio_baies_sref": ("Surface de baies / sref", "m²/m²"),
         "ratio_baies_murs_sref": ("(Baies + murs) / sref", "m²/m²"),
         "ic_lots_3_4_6": ("IC composant lots 3 + 4 + 6", "kgeq.CO2/m²"),
@@ -2767,10 +2777,17 @@ def groupes_graphique_7(
 
     _df = appliquer_filtres(DATA_brut, filtre_materiau=False, filtre_inconnu=False)
 
+    # Les « Petit logement coll. » (surface_baies_rset < 50 m², cf. `tranche_sref`) sont
+    # exclus des deux groupes, quel que soit le filtre de surface choisi.
+    _avant_tranche = _df.height
+    _df = _df.filter(pl.col("tranche_sref") != _TRANCHE_EXCLUE)
+    print(f"  « {_TRANCHE_EXCLUE} » exclus : {_avant_tranche - _df.height}")
+
     # Colonnes numériques lues en flottants (valeurs absentes -> NULL)
     _cols_num = [
         _COL_IC, _COL_SEUIL_2028, "sref", "surface_baies_rset", "surface_murs_rset",
-        "nb_total_fiche_acv", "nb_fdes", "stock_c", *_LOTS_SOMMES,
+        "nb_total_fiche_acv", "nb_fdes", "nb_ded", "stock_c", "ic_ded", "ic_composant_lot_8",
+        *_LOTS_SOMMES,
     ]
     _df = _df.with_columns([pl.col(_c).cast(pl.Float64, strict=False) for _c in _cols_num])
 
