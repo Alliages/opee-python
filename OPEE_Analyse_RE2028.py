@@ -37,11 +37,14 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.51"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "08/10/2026 23:15"
+    VERSION = "0.52"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "09/10/2026 00:05"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Analyse1 : classes d'écart au budget composant 2028, nombre et part des projets "
+        (VERSION, "Analyse2 : profil des classes (médianes par classe en dégradé, choix constructifs "
+                  "et techniques, tornade A contre B en écarts interquartiles), lots 8, 8.1 et 9 inclus ; "
+                  "sélecteur de période (toutes, 2022-2023, 2024-2025, comparaison des deux)"),
+        ("0.51", "Analyse1 : classes d'écart au budget composant 2028, nombre et part des projets "
                   "(ou bâtiments) par classe, indice de difficulté ; couleurs des classes accessibles "
                   "(bleu = conforme, rouge clair à foncé) ; % ajoutés au tableau des exclusions"),
         ("0.5", "Socle : en-tête, sommaire, connexion, extraction des logements collectifs, "
@@ -205,7 +208,7 @@ def sommaire_analyses(mo):
         5: "Simulateur de leviers",
         6: "Effet propre de chaque levier (régression)",
     }
-    ANALYSES_PRETES = {1}       # analyses déjà construites
+    ANALYSES_PRETES = {1, 2}    # analyses déjà construites
 
     _lignes = "\n".join(
         f"- **Analyse{_n}** — {_titre}" + ("" if _n in ANALYSES_PRETES else " *(à venir)*")
@@ -1326,6 +1329,515 @@ def graphique_analyse1(
         ])}),
     ])
     return INDICE_DIFFICULTE, TABLEAU_A1
+
+
+# ================================================================================
+# ANALYSE2 — Profil des classes : forme, programme, technique et méthode
+# ================================================================================
+
+
+@app.cell(hide_code=True)
+def widgets_analyse2(CLASSES_2028, CLASSES_DIFFICILES, mo):
+    # ============================================================================
+    # CELLULE — Analyse2 : widgets propres à l'analyse
+    #   - groupe_a_a2 / groupe_b_a2 : groupes de classes comparés (tornade, et
+    #     tableaux en mode « Comparer »)
+    #   - periode_a2 : période étudiée, ou comparaison des deux périodes
+    # PERIODES_A2 : découpage des années de dépôt (modifiable ICI).
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    PERIODES_A2 = {"2022-2023": [2022, 2023], "2024-2025": [2024, 2025]}
+    MODE_TOUTES_A2 = "Toutes"
+    MODE_COMPARER_A2 = "Comparer " + " / ".join(PERIODES_A2)
+    _GROUPES_A = {
+        "Conforme 2028": [CLASSES_2028[0]],
+        "Conforme 2028 + < 30 kg": CLASSES_2028[:2],
+    }
+    _GROUPES_B = {
+        "> 30 kg (30 à 80, 80 à 130, > 130)": CLASSES_DIFFICILES,
+        "> 130 kg": [CLASSES_2028[4]],
+        "80 à 130 kg + > 130 kg": CLASSES_2028[3:],
+        "< 30 kg": [CLASSES_2028[1]],
+    }
+
+    groupe_a_a2 = mo.ui.dropdown(options=_GROUPES_A, value="Conforme 2028", label="Groupe de référence (A)")
+    groupe_b_a2 = mo.ui.dropdown(
+        options=_GROUPES_B, value="> 30 kg (30 à 80, 80 à 130, > 130)", label="Groupe comparé (B)"
+    )
+    periode_a2 = mo.ui.radio(
+        options=[MODE_TOUTES_A2, *PERIODES_A2, MODE_COMPARER_A2], value=MODE_TOUTES_A2,
+        inline=True, label="**Période de dépôt du PC**",
+    )
+    return MODE_COMPARER_A2, MODE_TOUTES_A2, PERIODES_A2, groupe_a_a2, groupe_b_a2, periode_a2
+
+
+@app.cell(hide_code=True)
+def param_analyse2(ANALYSES, groupe_a_a2, groupe_b_a2, mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE — Analyse2 : titre, lecture et panneau de filtres
+    # ============================================================================
+    mo.vstack([
+        mo.md(
+            f"## Analyse2 — {ANALYSES[2]}\n\n"
+            "Ce qui change quand on s'éloigne du budget composant 2028. Comptage **par bâtiment** "
+            "(chaque bâtiment porte sa propre classe et ses propres indicateurs).  \n"
+            "**2a.** Médiane de chaque indicateur par classe (dégradé ligne par ligne).  \n"
+            "**2b.** Répartition des choix constructifs et techniques par classe (% des bâtiments).  \n"
+            "**2c.** Tornade : écart de médiane entre deux groupes de classes, du plus fort au plus faible.  \n"
+            "Le sélecteur **Période** (sous le résumé des filtres) restreint l'analyse à une période, "
+            "ou compare les deux : un écart présent dans les deux périodes est un levier stable ; "
+            "présent dans une seule, il traduit plutôt l'évolution des pratiques ou des données."
+        ),
+        panneau_filtres({
+            "Analyse2 : groupes comparés": mo.vstack([
+                groupe_a_a2, groupe_b_a2,
+                mo.md("*Utilisés par la tornade, et par les tableaux en mode « Comparer ».*"),
+            ]),
+        }),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_analyse2(DATA_base, appliquer_filtres, resume_filtres):
+    # Résumé SOUS les filtres (cellule séparée : elle lit les valeurs des widgets).
+    DATA_a2 = appliquer_filtres(DATA_base, verbeux=False)
+    resume_filtres(DATA_a2)
+    return (DATA_a2,)
+
+
+@app.cell(hide_code=True)
+def selecteur_periode_a2(CLASSES_2028, DATA_a2, PERIODES_A2, mo, periode_a2, pl):
+    # ============================================================================
+    # CELLULE — Analyse2 : sélecteur de période, juste au-dessus des résultats,
+    # avec le nombre de bâtiments classés par période (après filtres).
+    # Année d'un bâtiment = plus ancienne année de dépôt de PC de son projet.
+    # ============================================================================
+    _classes = DATA_a2.filter(pl.col("classe_2028").is_in(CLASSES_2028))
+    _effectifs = " · ".join(
+        f"{_nom} : **{_classes.filter(pl.col('annee_depot').is_in(_annees)).height}** bâtiments"
+        for _nom, _annees in PERIODES_A2.items()
+    )
+    mo.vstack([
+        periode_a2,
+        mo.md(f"<small>Bâtiments classés par période (après filtres) : {_effectifs}. "
+              "Année = plus ancienne année de dépôt de PC du projet.</small>"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def calcul_analyse2(
+    CLASSES_2028,
+    COULEURS_CLASSES,
+    DATA_a2,
+    MODE_COMPARER_A2,
+    MODE_TOUTES_A2,
+    PERIODES_A2,
+    groupe_a_a2,
+    groupe_b_a2,
+    periode_a2,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse2 : calculs (aucun affichage)
+    #
+    #   1. Colonnes dérivées (sref hors plateau, udd en %, part de DED, catégories)
+    #      et période de chaque bâtiment
+    #   2. Colonnes des tableaux, selon la période choisie :
+    #        - « Toutes » ou une période : une colonne par classe
+    #        - « Comparer »              : A et B × deux périodes (4 colonnes)
+    #   3. PROFIL_A2      : médiane de chaque indicateur numérique par colonne
+    #      COMPOSITION_A2 : part des bâtiments par catégorie, par colonne
+    #   4. TORNADE_A2     : écart de médiane B − A, rapporté à l'écart
+    #      interquartile (IQR) de l'ensemble, pour chaque période comparée
+    #
+    # « Inconnu » (écart non calculable) n'a pas de profil : il est écarté.
+    # Une médiane calculée sur moins de N_MIN_A2 bâtiments est grisée (tableaux)
+    # ou écartée (tornade).
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    N_MIN_A2 = 5                       # bâtiments renseignés minimum
+    _MODE = periode_a2.value
+    COMPARER_A2 = _MODE == MODE_COMPARER_A2
+    _CLASSES_A, _CLASSES_B = groupe_a_a2.value, groupe_b_a2.value
+    NOM_A_A2, NOM_B_A2 = groupe_a_a2.selected_key, groupe_b_a2.selected_key
+
+    # (famille, colonne, libellé, nombre de décimales)
+    INDICATEURS_A2 = [
+        ("Forme", "taux_vitrage_pct", "Taux de vitrage (% de la sref)", 1),
+        ("Forme", "ratio_facade", "Murs / sref (m²/m²)", 2),
+        ("Forme", "hauteur_hors_toiture", "Hauteur hors toiture (m)", 1),
+        ("Forme", "sref_fiable", "Sref (m², hors « plateau »)", 0),
+        ("Programme", "parking_infra_par_logement", "Places de parking en infra / logement", 2),
+        ("Programme", "nb_ascenseur", "Nombre d'ascenseurs", 1),
+        ("Programme", "nb_logements_estime", "Logements estimés (sref / 70)", 0),
+        ("Constructif", "stock_c", "Stockage carbone (kgC/m²)", 1),
+        ("Lots", "ic_composant_lot_8", "Lot 8 : CVC (kgCO₂e/m²)", 1),
+        ("Lots", "ic_composant_sous_lot_8_1", "dont sous-lot 8.1 : production chaud / froid (kgCO₂e/m²)", 1),
+        ("Lots", "ic_composant_lot_9", "Lot 9 : installations sanitaires (kgCO₂e/m²)", 1),
+        ("Méthode", "udd_pct", "Part d'impact des données par défaut (udd, %)", 1),
+        ("Méthode", "part_ded_pct", "Part de DED en nombre de fiches (%)", 1),
+        ("Méthode", "nb_total_fiche_acv", "Nombre de fiches (total)", 0),
+        ("Méthode", "nb_fdes", "Nombre de FDES", 0),
+        ("Méthode", "nb_pep", "Nombre de PEP", 0),
+    ]
+    # Catégories : (famille, colonne, nombre de modalités gardées, les autres -> « Autres »)
+    _CATEGORIES = [
+        ("Structure (dc_, à lire avec prudence)", "structure", 5),
+        ("Générateur de chauffage", "generateur", 5),
+        ("Ventilation", "ventilation", 3),
+        ("Réseau de chaleur", "reseau", 2),
+    ]
+    _LIBELLE_AUTRES = "Autres"
+    _LIBELLE_NON_RENSEIGNE = "Non renseigné"
+
+    # 1. Colonnes dérivées et période ---------------------------------------------
+    _ventil = pl.col("l_type_ventilation_mecanique").cast(pl.Utf8)
+    _periode = pl.lit(None, dtype=pl.Utf8)
+    for _nom, _annees in reversed(list(PERIODES_A2.items())):
+        _periode = pl.when(pl.col("annee_depot").is_in(_annees)).then(pl.lit(_nom)).otherwise(_periode)
+    DATA_a2_profil = (
+        DATA_a2.filter(pl.col("classe_2028").is_in(CLASSES_2028))
+        .with_columns(
+            _periode.alias("periode"),
+            pl.when(pl.col("sref_plateau")).then(None).otherwise(pl.col("sref")).alias("sref_fiable"),
+            (pl.col("udd") * 100).alias("udd_pct"),
+            (pl.col("nb_ded") / pl.col("nb_total_fiche_acv") * 100).alias("part_ded_pct"),
+            # Catégories (texte), NULL -> « Non renseigné »
+            pl.col("dc_materiau_structure").fill_null(_LIBELLE_NON_RENSEIGNE).alias("structure"),
+            pl.col("famille_synthese_generateur_ch").cast(pl.Utf8).fill_null(_LIBELLE_NON_RENSEIGNE).alias("generateur"),
+            pl.when(_ventil.is_null()).then(pl.lit(_LIBELLE_NON_RENSEIGNE))
+            .when(_ventil.str.contains("DF|[Dd]ouble")).then(pl.lit("Double flux"))
+            .when(_ventil.str.contains("SF|[Ss]imple")).then(pl.lit("Simple flux"))
+            .otherwise(pl.lit("Autre ventilation")).alias("ventilation"),
+            pl.when(pl.col("presence_reseau").cast(pl.Boolean)).then(pl.lit("Raccordé à un réseau"))
+            .otherwise(pl.lit("Non raccordé")).alias("reseau"),
+        )
+    )
+    _df = DATA_a2_profil
+    if _MODE not in (MODE_TOUTES_A2, MODE_COMPARER_A2):
+        _df = _df.filter(pl.col("periode") == _MODE)
+
+    # 2. Colonnes des tableaux : (libellé, expression de sélection, couleur) -------
+    _classe = pl.col("classe_2028")
+    if COMPARER_A2:
+        COLONNES_A2 = [
+            (f"{_lettre} · {_p}", _classe.is_in(_classes) & (pl.col("periode") == _p), _couleur)
+            for _lettre, _classes, _couleur in (
+                ("A", _CLASSES_A, COULEURS_CLASSES[_CLASSES_A[0]]),
+                ("B", _CLASSES_B, COULEURS_CLASSES[_CLASSES_B[0]]),
+            )
+            for _p in PERIODES_A2
+        ]
+    else:
+        COLONNES_A2 = [(_c, _classe == _c, COULEURS_CLASSES[_c]) for _c in CLASSES_2028]
+    _sous_df = {_lib: _df.filter(_expr) for _lib, _expr, _ in COLONNES_A2}
+    NB_PAR_COLONNE_A2 = {_lib: _d.height for _lib, _d in _sous_df.items()}
+
+    # 3a. Médianes ------------------------------------------------------------------
+    _lignes = []
+    for _famille, _col, _libelle, _dec in INDICATEURS_A2:
+        _ligne = {"famille": _famille, "indicateur": _libelle, "colonne": _col, "décimales": _dec}
+        for _lib, _d in _sous_df.items():
+            _serie = _d[_col].cast(pl.Float64).drop_nulls()
+            _ligne[_lib] = _serie.median() if _serie.len() else None
+            _ligne[f"n {_lib}"] = _serie.len()
+        _lignes.append(_ligne)
+    # Cast explicite : une colonne vide (aucun bâtiment) serait sinon de type Null
+    _LIBELLES = [_lib for _lib, _, _ in COLONNES_A2]
+    PROFIL_A2 = pl.DataFrame(_lignes).with_columns([pl.col(_lib).cast(pl.Float64) for _lib in _LIBELLES])
+
+    # 3b. Parts des catégories (% des bâtiments de la colonne) -----------------------
+    _lignes = []
+    for _famille, _col, _nb_gardees in _CATEGORIES:
+        _gardees = (
+            _df.filter(pl.col(_col) != _LIBELLE_NON_RENSEIGNE)
+            .group_by(_col).len().sort("len", descending=True)[_col].head(_nb_gardees).to_list()
+        )
+        _cat = (
+            pl.when(pl.col(_col).is_in(_gardees + [_LIBELLE_NON_RENSEIGNE])).then(pl.col(_col))
+            .otherwise(pl.lit(_LIBELLE_AUTRES))
+        )
+        for _modalite in _gardees + [_LIBELLE_AUTRES, _LIBELLE_NON_RENSEIGNE]:
+            _ligne = {"famille": _famille, "modalité": _modalite}
+            _presente = False
+            for _lib, _d in _sous_df.items():
+                _n = _d.filter(_cat == _modalite).height
+                _ligne[_lib] = 100 * _n / _d.height if _d.height else None
+                _ligne[f"n {_lib}"] = _d.height
+                _presente = _presente or _n > 0
+            if _presente:
+                _lignes.append(_ligne)
+    COMPOSITION_A2 = pl.DataFrame(_lignes).with_columns([pl.col(_lib).cast(pl.Float64) for _lib in _LIBELLES])
+
+    # 4. Tornade : une comparaison A vs B par période (une seule hors « Comparer »)
+    _periodes_tornade = list(PERIODES_A2) if COMPARER_A2 else [_MODE]
+    _lignes, ECARTES_A2 = [], []
+    for _p in _periodes_tornade:
+        _dp = _df.filter(pl.col("periode") == _p) if _p in PERIODES_A2 else _df
+        _df_a, _df_b = _dp.filter(_classe.is_in(_CLASSES_A)), _dp.filter(_classe.is_in(_CLASSES_B))
+        for _famille, _col, _libelle, _dec in INDICATEURS_A2:
+            _a = _df_a[_col].cast(pl.Float64).drop_nulls()
+            _b = _df_b[_col].cast(pl.Float64).drop_nulls()
+            _tout = _dp[_col].cast(pl.Float64).drop_nulls()
+            _iqr = (_tout.quantile(0.75) - _tout.quantile(0.25)) if _tout.len() else None
+            if _a.len() < N_MIN_A2 or _b.len() < N_MIN_A2 or not _iqr:
+                ECARTES_A2.append(f"{_libelle} ({_p})" if COMPARER_A2 else _libelle)
+                continue
+            _med_a, _med_b = _a.median(), _b.median()
+            _lignes.append({
+                "période": _p, "famille": _famille, "indicateur": _libelle,
+                "médiane A": round(_med_a, _dec), "médiane B": round(_med_b, _dec),
+                "écart B − A": round(_med_b - _med_a, _dec), "IQR ensemble": round(_iqr, _dec),
+                "écart en IQR": round((_med_b - _med_a) / _iqr, 2),
+                "n A": _a.len(), "n B": _b.len(), "décimales": _dec,
+            })
+    TORNADE_A2 = pl.DataFrame(_lignes) if _lignes else pl.DataFrame(
+        schema={"période": pl.Utf8, "indicateur": pl.Utf8, "écart en IQR": pl.Float64}
+    )
+    return (
+        COLONNES_A2,
+        COMPARER_A2,
+        COMPOSITION_A2,
+        ECARTES_A2,
+        NB_PAR_COLONNE_A2,
+        NOM_A_A2,
+        NOM_B_A2,
+        N_MIN_A2,
+        PROFIL_A2,
+        TORNADE_A2,
+    )
+
+
+@app.cell(hide_code=True)
+def tableaux_analyse2(
+    COLONNES_A2,
+    COMPARER_A2,
+    COMPOSITION_A2,
+    NB_PAR_COLONNE_A2,
+    NOM_A_A2,
+    NOM_B_A2,
+    N_MIN_A2,
+    PROFIL_A2,
+    boutons_export,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse2 : 2a (médianes) et 2b (répartition des catégories), en
+    # tableaux à dégradé de couleur.
+    #
+    # Dégradé calculé LIGNE PAR LIGNE : la cellule la plus foncée est la colonne
+    # où l'indicateur est le plus élevé. Une seule teinte (jaune du HUB) ; la
+    # valeur est toujours écrite, la couleur n'est qu'un repère.
+    # Cellule grisée = médiane calculée sur moins de N_MIN_A2 bâtiments.
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _TEINTE_RVB = (253, 185, 19)       # jaune du HUB
+    _OPACITE_MIN, _OPACITE_MAX = 0.06, 0.75
+    _COULEUR_TEXTE = "#222222"
+    _COULEUR_GRISE = "#b5b4b0"
+    _LIBELLES = [_lib for _lib, _, _ in COLONNES_A2]
+
+
+    def _style_degrade(df, effectifs, colonnes):
+        """style_cell pour mo.ui.table : dégradé par ligne sur `colonnes`, en
+        ignorant (et grisant) les cellules calculées sur trop peu de bâtiments."""
+        _styles = {}
+        for _i, (_valeurs, _n) in enumerate(zip(df.select(colonnes).iter_rows(), effectifs.iter_rows())):
+            _fiables = [v for v, n in zip(_valeurs, _n) if v is not None and n >= N_MIN_A2]
+            _bas, _haut = (min(_fiables), max(_fiables)) if _fiables else (0, 0)
+            for _col, _v, _nb in zip(colonnes, _valeurs, _n):
+                if _v is None:
+                    continue
+                if _nb < N_MIN_A2:
+                    _styles[(str(_i), _col)] = {"color": _COULEUR_GRISE}
+                    continue
+                _t = (_v - _bas) / (_haut - _bas) if _haut > _bas else 0.0
+                _a = _OPACITE_MIN + _t * (_OPACITE_MAX - _OPACITE_MIN)
+                _styles[(str(_i), _col)] = {
+                    "backgroundColor": f"rgba({_TEINTE_RVB[0]},{_TEINTE_RVB[1]},{_TEINTE_RVB[2]},{_a:.2f})",
+                    "color": _COULEUR_TEXTE,
+                }
+
+        def _style(ligne, colonne, valeur):
+            return _styles.get((str(ligne), colonne), {})
+        return _style
+
+
+    # En-têtes : libellé de colonne + nombre de bâtiments (change avec les filtres)
+    _entetes = {_lib: f"{_lib} (n={NB_PAR_COLONNE_A2[_lib]})" for _lib in _LIBELLES}
+    _cols = list(_entetes.values())
+    _effectifs_profil = PROFIL_A2.select([f"n {_lib}" for _lib in _LIBELLES])
+    _effectifs_compo = COMPOSITION_A2.select([f"n {_lib}" for _lib in _LIBELLES])
+
+    # 2a. Médianes, arrondies selon l'indicateur
+    _profil = PROFIL_A2.with_columns([
+        pl.struct(_lib, "décimales").map_elements(
+            lambda s, _lib=_lib: None if s[_lib] is None else round(s[_lib], s["décimales"]),
+            return_dtype=pl.Float64,
+        ).alias(_lib)
+        for _lib in _LIBELLES
+    ]).select("famille", "indicateur", *_LIBELLES).rename(_entetes)
+
+    # 2b. Parts des catégories (%)
+    _compo = COMPOSITION_A2.with_columns(
+        [pl.col(_lib).round(0) for _lib in _LIBELLES]
+    ).select("famille", "modalité", *_LIBELLES).rename(_entetes)
+
+    _legende = (
+        f"*Mode « Comparer » : **A** = {NOM_A_A2}, **B** = {NOM_B_A2}, pour chaque période.*  \n"
+        if COMPARER_A2 else ""
+    ) + f"*Cellule grisée : moins de {N_MIN_A2} bâtiments renseignés.*"
+
+    mo.vstack([
+        mo.md("### 2a. Médiane des indicateurs" + (" (A et B par période)" if COMPARER_A2 else " par classe")),
+        mo.md(_legende),
+        mo.ui.table(_profil, selection=None, pagination=False, show_download=False,
+                    style_cell=_style_degrade(_profil, _effectifs_profil, _cols)),
+        boutons_export(PROFIL_A2, "analyse2a_medianes"),
+        mo.md("### 2b. Choix constructifs et techniques (% des bâtiments de la colonne)"),
+        mo.ui.table(_compo, selection=None, pagination=False, show_download=False,
+                    style_cell=_style_degrade(_compo, _effectifs_compo, _cols)),
+        boutons_export(COMPOSITION_A2, "analyse2b_categories"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def tornade_analyse2(
+    COMPARER_A2,
+    COULEURS_CLASSES,
+    ECARTES_A2,
+    NOM_A_A2,
+    NOM_B_A2,
+    N_MIN_A2,
+    PERIODES_A2,
+    SOUS_TITRE_FILTRES,
+    TORNADE_A2,
+    boutons_export,
+    go,
+    mo,
+    periode_a2,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse2 : 2c. Tornade A vs B
+    #
+    # Longueur de barre = (médiane B − médiane A) / écart interquartile (IQR) de
+    # l'ensemble : comparable entre indicateurs d'unités différentes, et défini
+    # même quand la médiane A vaut 0. Tri du plus fort au plus faible écart.
+    #   - une période (ou toutes) : rouge = plus élevé dans B, bleu = dans A
+    #   - mode « Comparer »       : deux barres par indicateur, gris clair =
+    #     1re période, gris foncé = 2e période ; le sens se lit à gauche / droite
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _COULEUR_A = COULEURS_CLASSES["Conforme 2028"]
+    _COULEUR_B = COULEURS_CLASSES["30 à 80 kg"]
+    _COULEURS_PERIODES = dict(zip(PERIODES_A2, ["#a3a29d", "#45443f"]))   # rampe grise validée
+    _COULEUR_TEXTE = "#333333"
+    _HAUTEUR_LIGNE = 52 if COMPARER_A2 else 34
+
+
+    def _fmt(v, d):
+        return f"{v:,.{d}f}".replace(",", " ")
+
+
+    if TORNADE_A2.height == 0:
+        _sortie = mo.callout(mo.md(
+            f"Pas assez de bâtiments pour comparer « {NOM_A_A2} » et « {NOM_B_A2} » "
+            f"(minimum {N_MIN_A2} bâtiments renseignés par groupe)."
+        ), kind="warn")
+    else:
+        # Ordre des indicateurs : plus fort écart (en valeur absolue, max des périodes)
+        # en haut ; plotly trace de bas en haut -> tri croissant.
+        _ordre = (
+            TORNADE_A2.group_by("indicateur").agg(pl.col("écart en IQR").abs().max().alias("_tri"))
+            .sort("_tri")["indicateur"].to_list()
+        )
+        _y_cat = [f"{_i}  " for _i in _ordre]
+        _fig = go.Figure()
+        # Barres groupées horizontales : plotly place la 1re trace en BAS du groupe
+        # -> traces ajoutées de la plus récente à la plus ancienne (1re période en haut)
+        for _p in reversed(TORNADE_A2["période"].unique(maintain_order=True).to_list()):
+            _t = TORNADE_A2.filter(pl.col("période") == _p)
+            _lignes = {r["indicateur"]: r for r in _t.iter_rows(named=True)}
+            _rangs = [_lignes[_i] for _i in _ordre if _i in _lignes]
+            if COMPARER_A2:
+                _couleurs = _COULEURS_PERIODES[_p]
+            else:
+                _couleurs = [_COULEUR_B if r["écart en IQR"] > 0 else _COULEUR_A for r in _rangs]
+            _fig.add_trace(go.Bar(
+                y=[f"{r['indicateur']}  " for r in _rangs], x=[r["écart en IQR"] for r in _rangs],
+                orientation="h", name=_p,
+                marker={"color": _couleurs, "cornerradius": 4},
+                text=[f"{_fmt(r['médiane A'], r['décimales'])} → {_fmt(r['médiane B'], r['décimales'])}"
+                      for r in _rangs],
+                textposition="outside", cliponaxis=False,
+                textfont={"color": _COULEUR_TEXTE, "size": 11},
+                customdata=[[r["famille"], r["médiane A"], r["médiane B"], r["n A"], r["n B"], _p]
+                            for r in _rangs],
+                hovertemplate=(
+                    "<b>%{y}</b> (%{customdata[0]}) — %{customdata[5]}<br>"
+                    f"Médiane A ({NOM_A_A2}) : %{{customdata[1]}} — n = %{{customdata[3]}}<br>"
+                    f"Médiane B ({NOM_B_A2}) : %{{customdata[2]}} — n = %{{customdata[4]}}<br>"
+                    "Écart : %{x:.2f} IQR<extra></extra>"
+                ),
+                showlegend=COMPARER_A2,
+            ))
+
+        _x_max = TORNADE_A2["écart en IQR"].abs().max() or 1
+        _fig.add_vline(x=0, line={"color": "#9a9a96", "width": 1})
+        for _x, _texte, _ancre, _couleur in (
+            (-_x_max * 1.45, f"◀ plus élevé dans A : {NOM_A_A2}", "left", _COULEUR_A),
+            (_x_max * 1.45, f"plus élevé dans B : {NOM_B_A2} ▶", "right", _COULEUR_B),
+        ):
+            _fig.add_annotation(x=_x, y=1.0, yref="paper", yanchor="bottom", xanchor=_ancre,
+                                text=f"<b>{_texte}</b>", showarrow=False,
+                                font={"color": _COULEUR_TEXTE, "size": 12})
+        _titre_periode = (
+            " — comparaison des périodes" if COMPARER_A2
+            else ("" if periode_a2.value not in PERIODES_A2 else f" — dépôts {periode_a2.value}")
+        )
+        _fig.update_layout(
+            height=max(400, _HAUTEUR_LIGNE * len(_ordre) + 180), width=None,
+            template="plotly_white", barmode="group", bargap=0.25, bargroupgap=0.08,
+            title={"text": (
+                f"<b>Analyse2 — Tornade : {NOM_B_A2} contre {NOM_A_A2}{_titre_periode}</b><br>"
+                f"<sup>{SOUS_TITRE_FILTRES}</sup>"
+            )},
+            xaxis={"title": "Écart des médianes (B − A), en écarts interquartiles de l'ensemble",
+                   "range": [-_x_max * 1.5, _x_max * 1.5], "zeroline": False, "gridcolor": "#ececec"},
+            yaxis={"automargin": True, "categoryorder": "array", "categoryarray": _y_cat},
+            legend={"title": "Période de dépôt", "orientation": "h", "x": 0, "y": -0.12,
+                    "traceorder": "reversed"},
+            margin={"l": 20, "r": 20, "t": 110, "b": 90 if COMPARER_A2 else 60},
+        )
+        _sortie = mo.ui.plotly(_fig)
+
+    _note = (
+        f"*Indicateurs écartés (moins de {N_MIN_A2} bâtiments renseignés dans un groupe, "
+        "ou dispersion nulle) : " + ", ".join(ECARTES_A2) + "*"
+    ) if ECARTES_A2 else ""
+    mo.vstack([
+        mo.md(
+            "### 2c. Tornade : ce qui distingue les groupes\n\n"
+            "Étiquette = médiane A → médiane B. Longueur = écart rapporté à l'écart interquartile "
+            "de l'ensemble des bâtiments (1 = un écart interquartile), pour comparer des indicateurs "
+            "d'unités différentes."
+            + ("  \nEn mode « Comparer » : deux barres de même sens et de même longueur = levier "
+               "stable dans le temps." if COMPARER_A2 else "")
+        ),
+        _sortie,
+        mo.md(_note),
+        boutons_export(TORNADE_A2.drop("décimales", strict=False), "analyse2c_tornade"),
+    ])
+    return
 
 
 if __name__ == "__main__":
