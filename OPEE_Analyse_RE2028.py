@@ -37,11 +37,14 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.5"           # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "08/10/2026 18:12"
+    VERSION = "0.51"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "08/10/2026 23:15"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Socle : en-tête, sommaire, connexion, extraction des logements collectifs, "
+        (VERSION, "Analyse1 : classes d'écart au budget composant 2028, nombre et part des projets "
+                  "(ou bâtiments) par classe, indice de difficulté ; couleurs des classes accessibles "
+                  "(bleu = conforme, rouge clair à foncé) ; % ajoutés au tableau des exclusions"),
+        ("0.5", "Socle : en-tête, sommaire, connexion, extraction des logements collectifs, "
                   "colonnes calculées (budget composant 2028, écart, classes), exclusions permanentes, "
                   "filtres et bilan du nombre de bâtiments"),
     ]
@@ -202,7 +205,7 @@ def sommaire_analyses(mo):
         5: "Simulateur de leviers",
         6: "Effet propre de chaque levier (régression)",
     }
-    ANALYSES_PRETES = set()     # v0.5 : socle seul, aucune analyse encore construite
+    ANALYSES_PRETES = {1}       # analyses déjà construites
 
     _lignes = "\n".join(
         f"- **Analyse{_n}** — {_titre}" + ("" if _n in ANALYSES_PRETES else " *(à venir)*")
@@ -381,13 +384,17 @@ def constantes_analyse(pl):
     BORNES_CLASSES = [30, 80, 130]
     CLASSES_2028 = ["Conforme 2028", "< 30 kg", "30 à 80 kg", "80 à 130 kg", "> 130 kg"]
     CLASSE_INCONNUE = "Inconnu"     # écart non calculable (donnée manquante)
+    # Échelle ordonnée « divergente » : bleu = conforme ; rampe d'un seul rouge,
+    # du clair au foncé, pour l'éloignement au budget ; gris = inconnu.
+    # Rampe rouge validée (skill dataviz, validate_palette.js --ordinal : PASS) ;
+    # l'identité des classes est aussi portée par les étiquettes (pas la couleur seule).
     COULEURS_CLASSES = {
-        "Conforme 2028": "#4C9A2A",
-        "< 30 kg": "#A8C64E",
-        "30 à 80 kg": "#FDB913",
-        "80 à 130 kg": "#EE7D00",
-        "> 130 kg": "#B3261E",
-        "Inconnu": "#BDBDBD",
+        "Conforme 2028": "#2a78d6",
+        "< 30 kg": "#ec8f72",
+        "30 à 80 kg": "#d9583a",
+        "80 à 130 kg": "#ad321b",
+        "> 130 kg": "#76190c",
+        "Inconnu": "#b5b4b0",
     }
     # Indice de difficulté = part des projets au-delà de SEUIL_DIFFICULTE kg
     # (au-delà des leviers « gratuits » du HUB)
@@ -436,6 +443,7 @@ def constantes_analyse(pl):
         )
 
     return (
+        BORNES_CLASSES,
         CLASSES_2028,
         CLASSES_DIFFICILES,
         CLASSE_INCONNUE,
@@ -753,7 +761,19 @@ def exclusions_permanentes(
         })
 
     DATA_base = _df
-    BILAN_EXCLUSIONS = pl.DataFrame(_lignes)
+
+    # ---- Pourcentages, rapportés aux bâtiments / projets EXTRAITS (1re ligne)
+    _nb_bat = max(_lignes[0]["bâtiments restants"], 1)
+    _nb_proj = max(_lignes[0]["projets restants"], 1)
+    BILAN_EXCLUSIONS = pl.DataFrame(_lignes).with_columns(
+        (pl.col("bâtiments retirés") / _nb_bat * 100).round(1).alias("% bâtiments retirés"),
+        (pl.col("bâtiments restants") / _nb_bat * 100).round(1).alias("% bâtiments restants"),
+        (pl.col("projets restants") / _nb_proj * 100).round(1).alias("% projets restants"),
+    ).select(
+        "étape", "bâtiments retirés", "% bâtiments retirés",
+        "bâtiments restants", "% bâtiments restants",
+        "projets restants", "% projets restants",
+    )
     return BILAN_EXCLUSIONS, DATA_base
 
 
@@ -1097,6 +1117,215 @@ def apercu_socle(
         boutons_export(DATA_socle, "socle_batiments_filtres"),
     ])
     return
+
+
+# ================================================================================
+# ANALYSE1 — Classes d'écart au budget composant 2028 et indice de difficulté
+# ================================================================================
+
+
+@app.cell(hide_code=True)
+def widgets_analyse1(mo):
+    # ============================================================================
+    # CELLULE — Analyse1 : widget propre à l'analyse (défini à part pour que le
+    # panneau reste statique et que le graphique lise sa valeur).
+    # ============================================================================
+    compter_par_batiment_a1 = mo.ui.switch(label="Compter par bâtiment (sinon par projet)", value=False)
+    return (compter_par_batiment_a1,)
+
+
+@app.cell(hide_code=True)
+def param_analyse1(ANALYSES, compter_par_batiment_a1, mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE — Analyse1 : titre, lecture et panneau de filtres
+    # ============================================================================
+    mo.vstack([
+        mo.md(
+            f"## Analyse1 — {ANALYSES[1]}\n\n"
+            "Chaque projet est classé selon l'**écart de son IC composant au budget composant 2028** "
+            "(`ic_composant − (ic_construction_max_2028 − ic_chantier)`). Un projet de plusieurs "
+            "bâtiments est classé sur son bâtiment **le plus éloigné** du budget.  \n"
+            "**Indice de difficulté** = part des projets à **plus de 30 kgCO₂e/m²** du budget "
+            "(au-delà des leviers « simples »), calculée sur les projets classables (hors « Inconnu »)."
+        ),
+        panneau_filtres(bascules_analyse=(compter_par_batiment_a1,)),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_analyse1(DATA_base, appliquer_filtres, resume_filtres):
+    # Résumé SOUS les filtres (cellule séparée : elle lit les valeurs des widgets).
+    DATA_a1 = appliquer_filtres(DATA_base, verbeux=False)
+    resume_filtres(DATA_a1)
+    return (DATA_a1,)
+
+
+@app.cell(hide_code=True)
+def graphique_analyse1(
+    ANALYSES,
+    BORNES_CLASSES,
+    CLASSES_2028,
+    CLASSES_DIFFICILES,
+    CLASSE_INCONNUE,
+    COULEURS_CLASSES,
+    DATA_a1,
+    SEUIL_DIFFICULTE,
+    SOUS_TITRE_FILTRES,
+    boutons_export,
+    compter_par_batiment_a1,
+    expr_classe_2028,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse1 : nombre de projets par classe, part du total et indice
+    # de difficulté.
+    #
+    #   1. Unité comptée : projet (classé sur son bâtiment le plus éloigné du
+    #      budget) ou bâtiment (bascule « Compter par bâtiment »)
+    #   2. Comptage par classe, part des classables, part cumulée
+    #   3. Chiffres clés (nombre, part conforme, indice de difficulté)
+    #   4. Graphique en barres : une barre par classe, étiquette « nombre + % »,
+    #      accolade sur les classes « difficiles » (> 30 kg)
+    #   5. Tableau et exports
+    #
+    # Les parts sont calculées sur les projets CLASSABLES : « Inconnu » (écart non
+    # calculable) est compté à part et n'entre pas dans le dénominateur.
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _PAR_BATIMENT = compter_par_batiment_a1.value
+    _UNITE = "bâtiments" if _PAR_BATIMENT else "projets"
+    _COULEUR_TEXTE = "#333333"
+    _COULEUR_TEXTE_SECONDAIRE = "#6b6b6b"
+    _BORNES_TEXTE = {
+        CLASSES_2028[0]: "écart ≤ 0",
+        CLASSES_2028[1]: f"0 < écart < {BORNES_CLASSES[0]}",
+        CLASSES_2028[2]: f"{BORNES_CLASSES[0]} ≤ écart < {BORNES_CLASSES[1]}",
+        CLASSES_2028[3]: f"{BORNES_CLASSES[1]} ≤ écart < {BORNES_CLASSES[2]}",
+        CLASSES_2028[4]: f"écart ≥ {BORNES_CLASSES[2]}",
+        CLASSE_INCONNUE: "écart non calculable",
+    }
+
+    # 1. Unité comptée ------------------------------------------------------------
+    if _PAR_BATIMENT:
+        _unites = DATA_a1.select("projet_id", "ID", "ecart_2028", "classe_2028")
+    else:
+        # max() ignore les NULL : un projet n'est « Inconnu » que si AUCUN de ses
+        # bâtiments n'a d'écart calculable.
+        _unites = (
+            DATA_a1.group_by("projet_id")
+            .agg(pl.col("ecart_2028").max(), pl.len().alias("nb_batiments"))
+            .with_columns(expr_classe_2028().alias("classe_2028"))
+        )
+
+    # 2. Comptage par classe ------------------------------------------------------
+    _ordre = CLASSES_2028 + [CLASSE_INCONNUE]
+    _comptes = dict(_unites.group_by("classe_2028").len().iter_rows())
+    _nb = {c: _comptes.get(c, 0) for c in _ordre}
+    _nb_classables = sum(_nb[c] for c in CLASSES_2028)
+    _nb_inconnus = _nb[CLASSE_INCONNUE]
+
+
+    def _part(n):
+        return 100 * n / _nb_classables if _nb_classables else 0.0
+
+
+    _cumul, _lignes = 0, []
+    for _c in CLASSES_2028:
+        _cumul += _nb[_c]
+        _lignes.append({
+            "classe": _c, "bornes (kgCO₂e/m²)": _BORNES_TEXTE[_c], _UNITE: _nb[_c],
+            "part (%)": round(_part(_nb[_c]), 1), "part cumulée (%)": round(_part(_cumul), 1),
+        })
+    _lignes.append({
+        "classe": CLASSE_INCONNUE, "bornes (kgCO₂e/m²)": _BORNES_TEXTE[CLASSE_INCONNUE],
+        _UNITE: _nb_inconnus, "part (%)": None, "part cumulée (%)": None,
+    })
+    TABLEAU_A1 = pl.DataFrame(_lignes)
+
+    # 3. Chiffres clés ------------------------------------------------------------
+    _part_conforme = _part(_nb[CLASSES_2028[0]])
+    INDICE_DIFFICULTE = _part(sum(_nb[c] for c in CLASSES_DIFFICILES))
+    _chiffres = mo.hstack([
+        mo.stat(value=f"{_nb_classables}", label=f"{_UNITE.capitalize()} classés",
+                caption=f"+ {_nb_inconnus} « Inconnu »" if _nb_inconnus else "aucun « Inconnu »"),
+        mo.stat(value=f"{_part_conforme:.0f} %", label="Déjà conformes 2028",
+                caption=f"{_nb[CLASSES_2028[0]]} {_UNITE}"),
+        mo.stat(value=f"{INDICE_DIFFICULTE:.0f} %", label="Indice de difficulté",
+                caption=f"{_UNITE} à plus de {SEUIL_DIFFICULTE} kg du budget"),
+    ], justify="start", gap=2)
+
+    # 4. Graphique ----------------------------------------------------------------
+    _classes_tracees = CLASSES_2028 + ([CLASSE_INCONNUE] if _nb_inconnus else [])
+    _y = [_nb[c] for c in _classes_tracees]
+    _etiquettes = [
+        f"<b>{_nb[c]}</b><br>{_part(_nb[c]):.0f} %" if c != CLASSE_INCONNUE else f"<b>{_nb[c]}</b>"
+        for c in _classes_tracees
+    ]
+    _survol = [
+        f"{_nb[c]} {_UNITE} — {_part(_nb[c]):.1f} % des classés" if c != CLASSE_INCONNUE
+        else f"{_nb[c]} {_UNITE} — hors dénominateur"
+        for c in _classes_tracees
+    ]
+    _fig = go.Figure(go.Bar(
+        x=_classes_tracees, y=_y,
+        marker={"color": [COULEURS_CLASSES[c] for c in _classes_tracees], "cornerradius": 4},
+        text=_etiquettes, textposition="outside", cliponaxis=False,
+        textfont={"color": _COULEUR_TEXTE, "size": 13},
+        customdata=[[_BORNES_TEXTE[c], _s] for c, _s in zip(_classes_tracees, _survol)],
+        hovertemplate="<b>%{x}</b> (%{customdata[0]} kgCO₂e/m²)<br>%{customdata[1]}<extra></extra>",
+        showlegend=False,
+    ))
+
+    # Accolade au-dessus des classes « difficiles » : indice de difficulté
+    _y_max = max(_y) if _y and max(_y) else 1
+    _y_accolade = _y_max * 1.32
+    # Axe catégoriel : la i-ème classe est à l'abscisse i -> accolade du bord
+    # gauche de la 1re barre « difficile » au bord droit de la dernière.
+    _x0 = _classes_tracees.index(CLASSES_DIFFICILES[0]) - 0.42
+    _x1 = _classes_tracees.index(CLASSES_DIFFICILES[-1]) + 0.42
+    _fig.add_shape(type="line", xref="x", yref="y", x0=_x0, x1=_x1, y0=_y_accolade, y1=_y_accolade,
+                   line={"color": _COULEUR_TEXTE_SECONDAIRE, "width": 1.5})
+    for _x in (_x0, _x1):
+        _fig.add_shape(type="line", xref="x", yref="y", x0=_x, x1=_x,
+                       y0=_y_accolade, y1=_y_accolade * 0.95,
+                       line={"color": _COULEUR_TEXTE_SECONDAIRE, "width": 1.5})
+    _fig.add_annotation(
+        x=(_x0 + _x1) / 2, y=_y_accolade, yshift=14, showarrow=False,
+        text=f"<b>Indice de difficulté : {INDICE_DIFFICULTE:.0f} %</b> des {_UNITE} à plus de {SEUIL_DIFFICULTE} kg",
+        font={"color": _COULEUR_TEXTE, "size": 13},
+    )
+
+    _fig.update_layout(
+        height=520, width=None, template="plotly_white", bargap=0.18,
+        title={"text": (
+            f"<b>Analyse1 — {ANALYSES[1]}</b> — par {_UNITE[:-1]}<br>"
+            f"<sup>{SOUS_TITRE_FILTRES}</sup>"
+        )},
+        xaxis={"title": "Écart de l'IC composant au budget composant 2028 (kgCO₂e/m²)",
+               "type": "category", "categoryorder": "array", "categoryarray": _classes_tracees},
+        yaxis={"title": f"Nombre de {_UNITE}", "rangemode": "tozero",
+               "range": [0, _y_max * 1.5], "gridcolor": "#ececec"},
+        margin={"l": 60, "r": 20, "t": 90, "b": 60},
+    )
+
+    # 5. Affichage : chiffres clés, graphique, tableau, exports -------------------
+    _detail = _unites.sort("ecart_2028", descending=True, nulls_last=True)
+    mo.vstack([
+        _chiffres,
+        mo.ui.plotly(_fig),
+        mo.accordion({"Tableau des classes": mo.vstack([
+            mo.ui.table(TABLEAU_A1, selection=None),
+            boutons_export(TABLEAU_A1, f"analyse1_classes_par_{_UNITE}"),
+        ]), f"Détail des {_UNITE} classés": mo.vstack([
+            mo.ui.table(_detail, selection=None),
+            boutons_export(_detail, f"analyse1_detail_{_UNITE}"),
+        ])}),
+    ])
+    return INDICE_DIFFICULTE, TABLEAU_A1
 
 
 if __name__ == "__main__":
