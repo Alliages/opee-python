@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.95"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "08/10/2026 12:06"
+    VERSION = "0.95b"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "08/10/2026 21:36"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 8 : dispersion du DH par zone climatique (zones traversantes / non traversantes). Nouvelles colonnes par zone : dh_zones, is_traversant_zones, dh_max_zones"),
+        (VERSION, "Graphique 8 : slider « Zoom Axe Y » (350 à 2500, 1500 par défaut), zones à DH nul ou > 15000 écartées, DH max > 15000 ignoré, survol du « DHmax » (zone qui le porte)"),
+        ("0.95", "Graphique 8 : dispersion du DH par zone climatique (zones traversantes / non traversantes). Nouvelles colonnes par zone : dh_zones, is_traversant_zones, dh_max_zones"),
         ("0.94", "Graphique 7 : inversion de l'ordre des graphiques « stock de carbone » et « IC composant lots 3 + 4 + 6 »"),
         ("0.93", "Graphique 7 (numérique) : groupe 1 scindé en 1a (dépôt 2022-2023) et 1b (dépôt 2024-2025)"),
         ("0.92b", "Correction mineure : graphique 7, « Masquer Autre » placé avec « Valider… » en haut des filtres"),
@@ -3156,15 +3157,30 @@ def graphique_7_categoriel(
 @app.cell(hide_code=True)
 def param_graphique_8(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — graphique 8 (DH par zone climatique) : pas de paramètre
-    # propre, seulement les filtres communs (matériau de structure compris).
+    # CELLULE WIDGET — paramètre propre au graphique 8 : zoom sur l'axe Y (borne
+    # haute, en °C·h). Le slider est affiché sous le panneau de filtres, hors
+    # accordéon (donc toujours visible). Les valeurs proposées : 350, puis de 100 en
+    # 100 de 400 à 2500 (une grille 350, 450, ... ne contiendrait pas 1500).
     # ============================================================================
+
+    # ---- Variables ----------------------------------------------------------
+    Y_MAX_DH_MIN = 350
+    Y_MAX_DH_MAX = 2500
+    Y_MAX_DH_PAS = 100
+    Y_MAX_DH_DEFAUT = 1500
+
+    choix_y_max_dh = mo.ui.slider(
+        steps=[Y_MAX_DH_MIN] + list(range(400, Y_MAX_DH_MAX + 1, Y_MAX_DH_PAS)),
+        value=Y_MAX_DH_DEFAUT, show_value=True, full_width=True,
+        label="Zoom Axe Y : maximum du DH affiché (graphique 8)",
+    )
 
     mo.vstack([
         mo.md("### Paramètres du graphique 8"),
         panneau_filtres(),
+        choix_y_max_dh,
     ])
-    return
+    return (choix_y_max_dh,)
 
 
 @app.cell(hide_code=True)
@@ -3182,6 +3198,7 @@ def graphique_8(
     SOUS_TITRE_FILTRES,
     appliquer_filtres,
     boutons_export,
+    choix_y_max_dh,
     dropdown_usage,
     go,
     mo,
@@ -3204,6 +3221,14 @@ def graphique_8(
     # ============================================================================
 
     _USAGE = dropdown_usage.value
+    _Y_MAX = choix_y_max_dh.value   # borne haute de l'axe Y (°C·h) ; les zones au-delà sont coupées
+
+    # Valeurs écartées (données aberrantes) :
+    #   - DH nul (0) : zone non utilisée ;
+    #   - DH ou DH max supérieur à _DH_ABERRANT : un DH au-delà écarte la zone, un DH max
+    #     au-delà est ignoré (la zone reste tracée, sans compter pour l'affichage « DHmax »)
+    _DH_NUL = 0
+    _DH_ABERRANT = 15000
 
     # Ordre d'affichage des zones climatiques (les autres valeurs, s'il y en a,
     # sont ajoutées à la fin par ordre alphabétique)
@@ -3247,10 +3272,17 @@ def graphique_8(
     _zones = _zones.with_columns((pl.col("rang_global").rank("ordinal").over("ID") ).alias("n_zone"))
     _nb_zones_total = _zones.height
 
+    # DH nul ou aberrant : zone écartée. DH max aberrant : valeur ignorée (mise à NULL).
+    _dh_valide = pl.col("dh_zone").is_not_null() & (pl.col("dh_zone") != _DH_NUL) & (pl.col("dh_zone") <= _DH_ABERRANT)
     _sans_dh = _zones.filter(pl.col("dh_zone").is_null()).height
-    _sans_trav = _zones.filter(pl.col("dh_zone").is_not_null() & pl.col("is_traversant").is_null()).height
-    _zones = _zones.filter(pl.col("dh_zone").is_not_null() & pl.col("is_traversant").is_not_null())
-    print(f"  zones : {_nb_zones_total} ; sans DH : {_sans_dh} ; sans information « traversant » : {_sans_trav}")
+    _dh_ecartes = _zones.filter(pl.col("dh_zone").is_not_null() & ~_dh_valide).height   # DH à 0 ou aberrant
+    _sans_trav = _zones.filter(_dh_valide & pl.col("is_traversant").is_null()).height
+    _zones = _zones.filter(_dh_valide & pl.col("is_traversant").is_not_null())
+    _zones = _zones.with_columns(
+        pl.when(pl.col("dh_max_zone") > _DH_ABERRANT).then(None).otherwise(pl.col("dh_max_zone")).alias("dh_max_zone")
+    )
+    print(f"  zones : {_nb_zones_total} ; sans DH : {_sans_dh} ; DH à 0 ou > {_DH_ABERRANT} : {_dh_ecartes} ; "
+          f"sans information « traversant » : {_sans_trav}")
 
     mo.stop(_zones.height == 0, mo.md("**Aucune zone avec un DH et une information « traversant » pour ces filtres.**"))
 
@@ -3268,6 +3300,10 @@ def graphique_8(
             pl.col("dh_zone").quantile(0.75).alias("q3"),
             pl.col("dh_zone").max().alias("max"),
             pl.col("dh_max_zone").max().alias("dh_max_maximum"),   # plus grand DH max réglementaire du groupe
+            # zone qui porte ce plus grand DH max (affichée au survol du « DHmax »)
+            pl.col("ID").sort_by("dh_max_zone", descending=True, nulls_last=True).first().alias("id_dh_max"),
+            pl.col("dh_zone").sort_by("dh_max_zone", descending=True, nulls_last=True).first().alias("dh_de_id_dh_max"),
+            (pl.col("dh_zone") > _Y_MAX).sum().alias("nb_au_dela_axe"),
         )
         .with_columns((pl.col("nb_zones") >= _NB_MIN_PAR_BOITE).alias("boite_affichee"))
     )
@@ -3339,9 +3375,14 @@ def graphique_8(
             # DH max réglementaire du groupe, UNIQUEMENT s'il dépasse 1250 : petit
             # chiffre en haut de la colonne, dans la couleur du groupe
             if _r["dh_max_maximum"] is not None and _r["dh_max_maximum"] > _DH_MAX_REGLEMENTAIRE:
+                # Ce chiffre est la LIMITE réglementaire (dh_max) et non un DH mesuré : aucun
+                # point n'est donc situé à cette hauteur. Au survol : la zone qui la porte.
                 _annotations_dh_max.append(dict(
                     x=_x, y=1.0, xref="x", yref="paper", yanchor="bottom", showarrow=False,
                     text=f"DHmax<br>{_r['dh_max_maximum']:.0f}", font=dict(size=11, color=_couleur),
+                    captureevents=True,
+                    hovertext=(f"DH max réglementaire le plus élevé du groupe : {_r['dh_max_maximum']:.0f}<br>"
+                               f"porté par {_r['id_dh_max']} (DH de cette zone : {_r['dh_de_id_dh_max']:.0f})"),
                 ))
 
     # Repères horizontaux
@@ -3361,17 +3402,21 @@ def graphique_8(
         if _nb_masquees else ""
     )
     _note_exclues = (
-        f" — zones écartées : {_sans_dh} sans DH, {_sans_trav} sans information « traversant »"
-        if (_sans_dh or _sans_trav) else ""
+        f" — zones écartées : {_sans_dh} sans DH, {_dh_ecartes} DH à 0 ou > {_DH_ABERRANT}, "
+        f"{_sans_trav} sans information « traversant »"
+        if (_sans_dh or _dh_ecartes or _sans_trav) else ""
     )
+    _nb_au_dela = int(_agg["nb_au_dela_axe"].sum())
+    _note_axe = f" — {_nb_au_dela} zone(s) au-dessus de {_Y_MAX} non visible(s) (axe coupé)" if _nb_au_dela else ""
     _fig.update_layout(
         template="plotly_white",
         height=620,
         title=dict(
             text=(
                 f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
-                f"<sup>{_zones.height} zones de {_zones['ID'].n_unique()} bâtiments{_note_masquees}{_note_exclues}</sup><br>"
-                f"<sup>{SOUS_TITRE_FILTRES}</sup>"
+                f"<sup>{_zones.height} zones de {_zones['ID'].n_unique()} bâtiments{_note_masquees}</sup><br>"
+                + (f"<sup>{(_note_exclues + _note_axe).lstrip(' —')}</sup><br>" if (_note_exclues or _note_axe) else "")
+                + f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
             font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
         ),
@@ -3385,9 +3430,9 @@ def graphique_8(
             ],
             range=[-0.6, len(_zones_climatiques) - 0.4],
         ),
-        yaxis=dict(title="DH de la zone (°C·h)", rangemode="tozero"),
+        yaxis=dict(title="DH de la zone (°C·h)", range=[0, _Y_MAX]),
         legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top"),
-        margin=dict(t=190, b=110, l=60, r=20),
+        margin=dict(t=210, b=110, l=60, r=20),
     )
 
     # add_annotation (et non update_layout(annotations=...)) : ajoute aux annotations
