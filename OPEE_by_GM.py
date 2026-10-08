@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.95b"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "08/10/2026 21:36"
+    VERSION = "0.96"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "09/10/2026 01:49"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 8 : slider « Zoom Axe Y » (350 à 2500, 1500 par défaut), zones à DH nul ou > 15000 écartées, DH max > 15000 ignoré, survol du « DHmax » (zone qui le porte)"),
+        (VERSION, "Nouveau graphique 2 : répartition de l'impact carbone (composants, chantier, énergie, eau) par seuil RE2020 ; anciens graphiques 2 à 8 renumérotés 3 à 9 ; bouton « Download plot as JSON » ajouté à tous les graphiques (CONFIG_PLOTLY) ; extraction de ic_chantier et ic_eau"),
+        ("0.95b", "Graphique 8 : slider « Zoom Axe Y » (350 à 2500, 1500 par défaut), zones à DH nul ou > 15000 écartées, DH max > 15000 ignoré, survol du « DHmax » (zone qui le porte)"),
         ("0.95", "Graphique 8 : dispersion du DH par zone climatique (zones traversantes / non traversantes). Nouvelles colonnes par zone : dh_zones, is_traversant_zones, dh_max_zones"),
         ("0.94", "Graphique 7 : inversion de l'ordre des graphiques « stock de carbone » et « IC composant lots 3 + 4 + 6 »"),
         ("0.93", "Graphique 7 (numérique) : groupe 1 scindé en 1a (dépôt 2022-2023) et 1b (dépôt 2024-2025)"),
@@ -193,20 +194,25 @@ def liste_graphiques(mo):
 
     GRAPHIQUES = {
         1: "Nombre de bâtiments par seuil IC Construction et par tranche d'IC Construction",
-        2: "Impact carbone des matériaux : IC composant moyen par lot, par seuil RE2020",
-        3: "Médiane IC Composant par matériau de structure et par seuil RE2020",
-        4: "Q1 / Médiane / Q3 du nombre de fiches (FDES + PEP + DED) par seuil RE2020",
-        5: "Écart des bâtiments aux seuils réglementaires (%)",
-        6: "Stock de carbone par type de matériau de structure et seuil RE2020",
-        7: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
-        8: "Dispersion du DH par zone climatique, zones traversantes et non traversantes",
+        2: "Répartition de l'impact carbone du bâtiment par seuil RE2020 (kgCO₂e/m² sur 50 ans)",
+        3: "Impact carbone des matériaux : IC composant moyen par lot, par seuil RE2020",
+        4: "Médiane IC Composant par matériau de structure et par seuil RE2020",
+        5: "Q1 / Médiane / Q3 du nombre de fiches (FDES + PEP + DED) par seuil RE2020",
+        6: "Écart des bâtiments aux seuils réglementaires (%)",
+        7: "Stock de carbone par type de matériau de structure et seuil RE2020",
+        8: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
+        9: "Dispersion du DH par zone climatique, zones traversantes et non traversantes",
     }
+
+    # Configuration commune de TOUS les graphiques Plotly (barre d'outils au survol) :
+    # ajoute le bouton « Download plot as JSON » (modeBarButtonsToAdd).
+    CONFIG_PLOTLY = {"modeBarButtonsToAdd": ["downloadJson"]}
 
     mo.md(
         "### Graphiques du dashboard\n\n"
         + "\n".join(f"- Graphique {_n} — {_titre}" for _n, _titre in GRAPHIQUES.items())
     )
-    return (GRAPHIQUES,)
+    return CONFIG_PLOTLY, GRAPHIQUES
 
 
 @app.cell(hide_code=True)
@@ -570,7 +576,7 @@ def extraction_unique(
     mo.stop(not button_lancer.value)
     # ============================================================================
     # CELLULE D'EXTRACTION UNIQUE — un seul appel réseau à Turso, partagé par
-    # TOUS les graphiques (1 à 8).
+    # TOUS les graphiques (1 à 9).
     #
     # Ne dépend QUE de dropdown_usage (et du bouton). Tous les autres filtres
     # (règles de validation, min/max, surface, années, attestation, zone
@@ -610,8 +616,10 @@ def extraction_unique(
     ]
     # Colonnes supplémentaires : fiches ACV, stock carbone, surface de baies
     # (surface_baies_rset sert à définir les tranches de taille des logements
-    # collectifs, cf. cellule `constantes_filtres`)
-    _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset", "surface_murs_rset"]
+    # collectifs, cf. cellule `constantes_filtres`) ; ic_chantier et ic_eau complètent
+    # ic_composant et ic_energie pour la répartition de l'impact carbone (graphique 2)
+    _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset", "surface_murs_rset",
+                             "ic_chantier", "ic_eau"]
     # Surfaces totales des zones (table zone_open_data, une ligne par zone)
     _COLS_ZONE = ["misurf_tot", "mbsurf_tot"]
     # Colonnes "une valeur PAR ZONE" : un bâtiment a 1 à n zones, on garde toutes
@@ -620,7 +628,7 @@ def extraction_unique(
     # la valeur de rang n correspond donc à la même zone dans les trois listes.
     #   - dh_zones            : DH de chaque zone (le DH du bâtiment, dh_batiment, en est le max)
     #   - is_traversant_zones : la zone est-elle traversante (True / False) ?
-    #   - dh_max_zones        : DH max réglementaire de chaque zone (graphique 8)
+    #   - dh_max_zones        : DH max réglementaire de chaque zone (graphique 9)
     _COLS_ZONE_LISTES = {
         "dh_zones": ("dh_zone", "REAL"),
         "is_traversant_zones": ("is_traversant", "INTEGER"),
@@ -1016,6 +1024,7 @@ def resume_filtres_graphique_1(resume_filtres):
 
 @app.cell(hide_code=True)
 def graphique_1(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
     SOUS_TITRE_FILTRES,
@@ -1148,7 +1157,7 @@ def graphique_1(
             font=dict(size=13, color="black"),
         )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : les données TRACÉES (nombre de bâtiments par seuil x tranche d'IC)
     mo.vstack([_graphique, boutons_export(_agg.sort("seuil", "tranche_ic"), "graphique_1_batiments_par_tranche_ic")])
@@ -1174,7 +1183,7 @@ def constantes_filtres(pl):
     #                               surface s'applique ?" ; SREF_MAX_SLIDER / SREF_PAS_SLIDER :
     #                               bornes du curseur de sref
     #   - CATEGORIES_MATERIAU / MAPPING_MATERIAU / COULEURS_CATEGORIES : regroupement
-    #                               des matériaux en 5 catégories (graphiques 3 et 6)
+    #                               des matériaux en 5 catégories (graphiques 4 et 7)
     #   - expr_tranche_surface()  : expression polars donnant la tranche de chaque
     #                               bâtiment (colonne `tranche_sref`)
     # ============================================================================
@@ -1199,7 +1208,7 @@ def constantes_filtres(pl):
         "Béton fibré", "Béton haute performance", "Mixte: bois-béton", "Mixte: béton-acier",
         "Pierre", "Terre crue", "Terre cuite", "Bois massif", "Bois massif reconstitué",
     ]
-    # Regroupement des 15 matériaux de structure en 5 catégories (graphiques 3 et 6)
+    # Regroupement des 15 matériaux de structure en 5 catégories (graphiques 4 et 7)
     CATEGORIES_MATERIAU = ["Sans info", "Béton", "Terre cuite", "Acier", "Bas Carbone"]
     MAPPING_MATERIAU = {
         "Autre": "Sans info",
@@ -1453,13 +1462,295 @@ def filtres_communs(
 
 @app.cell(hide_code=True)
 def param_graphique_2(mo, panneau_filtres):
-    # Paramètre propre au graphique 2 (le seul qui utilise les 13 lots)
-    valeur_exclusion_lots = mo.ui.range_slider(start=0, stop=500, step=10, value=[0, 300], label="Un lot est compris entre :", show_value=True)
+    # ============================================================================
+    # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 2.
+    # Pas de paramètre propre ; « Masquer les inconnus » n'y figure pas : seuls les
+    # seuils RE2022 à RE2031 sont tracés (les bâtiments « Inconnu » sont ignorés).
+    # ============================================================================
 
     mo.vstack([
         mo.md("### Paramètres du graphique 2"),
+        panneau_filtres(avec_inconnus=False),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_2(resume_filtres):
+    # Résumé des filtres actifs du graphique 2 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres(avec_inconnus=False)
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_2(
+    CONFIG_PLOTLY,
+    GRAPHIQUES,
+    DATA_brut,
+    SOUS_TITRE_FILTRES,
+    appliquer_filtres,
+    boutons_export,
+    dropdown_usage,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Graphique 2 : répartition de l'impact carbone du bâtiment par seuil
+    # RE2020 (barres empilées : composants, chantier, énergie, eau).
+    #
+    # Part de DATA_brut (AUCUN appel réseau ici) ; filtres temps réel communs à tous
+    # les graphiques (cellule `filtres_communs`), sauf « Masquer les inconnus ».
+    #
+    # Valeur d'une barre = MOYENNE par seuil, arrondie à l'unité ; le total « Bâtiment »
+    # est la somme des quatre valeurs arrondies. Les pourcentages (bulles) sont
+    # calculés sur composants + chantier + énergie (l'eau n'a pas de seuil).
+    # ============================================================================
+
+    # ============================================================================
+    # PARAMÈTRES (toutes les variables au même endroit)
+    # ============================================================================
+
+    # --- Seuils tracés (un par barre, de gauche à droite) --------------------------
+    _SEUILS = ["RE2022", "RE2025", "RE2028", "RE2031"]
+
+    # --- Postes de l'impact carbone, DU BAS VERS LE HAUT de la pile ----------------
+    # clé : (colonne de DATA_brut, libellé de la légende, couleur de la barre,
+    #        couleur du chiffre dans la barre)
+    _POSTES = {
+        "Composants": ("ic_composant", "Composants", "#283246", "white"),
+        "Chantier":   ("ic_chantier", "Chantier", "#B4BCCC", "black"),
+        "Énergie":    ("ic_energie", "Énergie", "#FFDA7A", "black"),
+        "Eau":        ("ic_eau", "Eau (sans seuil)", "#00B0F0", "black"),
+    }
+    # Poste dont le chiffre est écrit sur un petit fond de la couleur de la barre (le bloc,
+    # très fin, est chevauché par les voisins : sans fond, le chiffre serait illisible)
+    _POSTE_CHANTIER = "Chantier"
+    # Postes avec bulle de pourcentage (l'eau n'en a pas) : couleur de la bulle
+    _BULLES = {"Composants": "#283246", "Chantier": "#8892A6", "Énergie": "#FFC000"}
+
+    # --- Dimensions et mise en page ------------------------------------------------
+    _LARGEUR, _HAUTEUR = 1180, 640
+    _MARGE_HAUT, _MARGE_BAS, _MARGE_GAUCHE, _MARGE_DROITE = 110, 90, 90, 30
+    _LARGEUR_BARRE = 0.45               # largeur d'une barre (en unité d'axe x)
+    _X_MIN = -0.75                      # bornes de l'axe x (la 1re barre est en x = 0)
+    _MARGE_X_DROITE = 0.65              # espace à droite de la dernière barre (unité d'axe x)
+    _COEF_Y_MAX = 1.35                  # axe y = total le plus haut x ce coefficient (place pour la légende)
+    _POLICE = "Calibri, Carlito, Arial"
+
+    # --- Bulles de pourcentage (ellipses dimensionnées en pixels) ------------------
+    _BULLE_LARGEUR_PX, _BULLE_HAUTEUR_PX = 60, 34
+    _BULLE_DECALAGE_PX = 8              # espace entre le bord de la barre et la bulle
+    _BULLE_ECART_MIN_PX = 40            # distance verticale minimale entre deux bulles
+
+    # --- Mot « construction » (composants + chantier, 1re barre seulement) ---------
+    _COULEUR_CONSTRUCTION = "#8a8a8a"
+    _ACCOLADE_DECALAGE_PX = 55          # distance entre le bord de la barre et le trait gris
+    _TEXTE_CONSTRUCTION_DECALAGE_PX = 14  # distance entre le trait gris et le texte vertical
+
+    # ============================================================================
+    # 1. DONNÉES
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+    _cols = [_c[0] for _c in _POSTES.values()]
+
+    _df = appliquer_filtres(DATA_brut, filtre_inconnu=False).filter(pl.col("seuil").is_in(_SEUILS))
+    _nb_avant = _df.height
+    # Les 4 postes doivent être renseignés, sinon la somme des barres serait faussée
+    _df = _df.drop_nulls(_cols)
+    _nb_exclus = _nb_avant - _df.height
+
+    mo.stop(_df.height == 0, mo.md("**Aucun bâtiment (avec les 4 postes renseignés) ne correspond aux filtres choisis.**"))
+
+    # Moyenne exacte par seuil, puis valeur arrondie à l'unité (celle qui est affichée)
+    _stats = (
+        _df.group_by("seuil")
+        .agg(pl.len().alias("n"), *[pl.col(_c).mean().alias(_k) for _k, (_c, *_r) in _POSTES.items()])
+        .with_columns(pl.col("seuil").replace_strict({_s: _i for _i, _s in enumerate(_SEUILS)}).alias("_ordre"))
+        .sort("_ordre")
+        .drop("_ordre")
+    )
+    _lignes = _stats.to_dicts()
+    _seuils_presents = [_l["seuil"] for _l in _lignes]
+
+    _valeurs = []        # une entrée par barre : {poste: valeur arrondie}, total, base des %
+    for _l in _lignes:
+        _v = {_k: round(_l[_k]) for _k in _POSTES}
+        _valeurs.append({"v": _v, "total": sum(_v.values()), "base_pct": sum(_v[_k] for _k in _BULLES)})
+
+    # ============================================================================
+    # 2. ÉCHELLE (pixels par unité d'axe) : sert à placer bulles, accolade et libellés
+    # ============================================================================
+
+    _y_max = max(_b["total"] for _b in _valeurs) * _COEF_Y_MAX
+    _x_max = len(_lignes) - 1 + _MARGE_X_DROITE
+    _largeur_trace = _LARGEUR - _MARGE_GAUCHE - _MARGE_DROITE
+    _px_par_unite_y = (_HAUTEUR - _MARGE_HAUT - _MARGE_BAS) / _y_max
+    _demi_barre_px = _LARGEUR_BARRE / 2 * _largeur_trace / (_x_max - _X_MIN)
+
+    # ============================================================================
+    # 3. FIGURE
+    # ============================================================================
+
+    _fig = go.Figure()
+    _formes, _annotations = [], []
+
+    # --- Barres empilées (une trace par poste) ---------------------------------------
+    for _k, (_col, _libelle, _couleur, _couleur_txt) in _POSTES.items():
+        _fig.add_trace(go.Bar(
+            x=_seuils_presents,
+            y=[_b["v"][_k] for _b in _valeurs],
+            name=_libelle,
+            marker_color=_couleur,
+            width=_LARGEUR_BARRE,
+            # Chiffre au milieu de sa barre, MÊME quand le bloc est trop fin pour le contenir
+            # (constraintext="none" : pas de réduction ni de déplacement ; textangle=0 : jamais
+            # pivoté). Le chantier est écrit à part (annotation, cf. plus bas).
+            text=[("" if _k == _POSTE_CHANTIER else _b["v"][_k]) for _b in _valeurs],
+            textposition="inside",
+            insidetextanchor="middle",
+            textangle=0,
+            constraintext="none",
+            textfont=dict(color=_couleur_txt, size=14, family=_POLICE),
+            customdata=[[_l[_k], _l["n"]] for _l in _lignes],
+            hovertemplate=(
+                f"<b>%{{x}}</b> — {_libelle}<br>"
+                "Moyenne : %{customdata[0]:.1f} kgCO₂e/m²<br>"
+                "Affiché (arrondi) : %{y}<br>"
+                "n = %{customdata[1]} bâtiments<extra></extra>"
+            ),
+        ))
+
+    # --- Annotations et formes, barre par barre -----------------------------------------
+    for _i, (_l, _b) in enumerate(zip(_lignes, _valeurs)):
+        _x = _l["seuil"]
+        _v = _b["v"]
+
+        # Total du bâtiment, au-dessus de la barre : « Bâtiment : » en petit, total en gras
+        _annotations.append(dict(
+            x=_x, y=_b["total"], yshift=30, showarrow=False,
+            text="<span style='font-size:10px;color:#666'>Bâtiment :</span>",
+        ))
+        _annotations.append(dict(
+            x=_x, y=_b["total"], yshift=13, showarrow=False,
+            text=f"<b>{_b['total']}</b>", font=dict(size=20),
+        ))
+
+        # Chiffre du chantier : au milieu de son bloc, même style que les autres chiffres, sur
+        # un fond de la couleur de la barre (il peut chevaucher un peu les blocs voisins)
+        _annotations.append(dict(
+            x=_x, y=_v["Composants"] + _v[_POSTE_CHANTIER] / 2, showarrow=False,
+            text=str(_v[_POSTE_CHANTIER]), bgcolor=_POSTES[_POSTE_CHANTIER][2], borderpad=1,
+            font=dict(color=_POSTES[_POSTE_CHANTIER][3], size=14, family=_POLICE),
+        ))
+
+        # Bulles de pourcentage : au centre de leur bloc, puis écartées de _BULLE_ECART_MIN_PX
+        # (positions en pixels depuis l'axe x ; l'écart est réparti vers le haut et vers le bas)
+        _centre, _cumul = {}, 0
+        for _k in _POSTES:
+            _centre[_k] = _cumul + _v[_k] / 2
+            _cumul += _v[_k]
+        _pos_px = {_k: _centre[_k] * _px_par_unite_y for _k in _BULLES}
+        _cles = list(_BULLES)
+        for _j in range(1, len(_cles)):
+            _manque = _BULLE_ECART_MIN_PX - (_pos_px[_cles[_j]] - _pos_px[_cles[_j - 1]])
+            if _manque > 0:
+                _pos_px[_cles[_j]] += _manque / 2
+                _pos_px[_cles[_j - 1]] -= _manque / 2
+        _x0_bulle = _demi_barre_px + _BULLE_DECALAGE_PX
+        for _k, _couleur_bulle in _BULLES.items():
+            _y_bulle = _pos_px[_k] / _px_par_unite_y
+            _pct = round(100 * _v[_k] / _b["base_pct"]) if _b["base_pct"] else 0
+            _formes.append(dict(
+                type="circle", xref="x", yref="y", xanchor=_x, yanchor=_y_bulle,
+                xsizemode="pixel", ysizemode="pixel",
+                x0=_x0_bulle, x1=_x0_bulle + _BULLE_LARGEUR_PX,
+                y0=-_BULLE_HAUTEUR_PX / 2, y1=_BULLE_HAUTEUR_PX / 2,
+                fillcolor=_couleur_bulle, line=dict(color="#9aa0a6", width=1),
+            ))
+            _annotations.append(dict(
+                x=_x, y=_y_bulle, xshift=_x0_bulle + _BULLE_LARGEUR_PX / 2, showarrow=False,
+                text=f"<b>{_pct} %</b>", font=dict(size=16, color="white"),
+            ))
+
+        # Bandeau noir sous la barre : seuil et nombre de bâtiments
+        _annotations.append(dict(
+            x=_x, y=0, yshift=-34, showarrow=False, width=170, bgcolor="black", borderpad=6,
+            text=f"<b>{_x}</b>  <span style='font-size:11px'>n = {_l['n']}</span>",
+            font=dict(color="white", size=17),
+        ))
+
+        # « construction » (composants + chantier) : 1re barre seulement, texte gris vertical
+        # et trait gris de la hauteur composants + chantier
+        if _i == 0:
+            _haut = _v["Composants"] + _v["Chantier"]
+            _x_trait = -(_demi_barre_px + _ACCOLADE_DECALAGE_PX)
+            _formes.append(dict(
+                type="line", xref="x", yref="y", xanchor=_x, xsizemode="pixel",
+                x0=_x_trait, x1=_x_trait, y0=0, y1=_haut,
+                line=dict(color="#9a9a9a", width=1.5),
+            ))
+            _annotations.append(dict(
+                x=_x, y=_haut / 2, xshift=_x_trait - _TEXTE_CONSTRUCTION_DECALAGE_PX, showarrow=False,
+                text="construction", textangle=-90, font=dict(size=15, color=_COULEUR_CONSTRUCTION),
+            ))
+
+    _fig.update_layout(
+        barmode="stack",
+        template="plotly_white",
+        width=_LARGEUR,
+        height=_HAUTEUR,
+        shapes=_formes,
+        annotations=_annotations,
+        title=dict(
+            text=f"<b>Graphique 2 — {GRAPHIQUES[2]} — {_USAGE}</b><br>"
+                 f"<sup>{SOUS_TITRE_FILTRES} — moyenne par seuil, arrondie à l'unité</sup>",
+            font=dict(size=18),
+        ),
+        font=dict(family=_POLICE),
+        margin=dict(t=_MARGE_HAUT, b=_MARGE_BAS, l=_MARGE_GAUCHE, r=_MARGE_DROITE),
+        yaxis=dict(
+            title=dict(text="<i>kgCO₂e/m² sur 50 ans</i>", font=dict(size=15)),
+            showgrid=False, range=[0, _y_max], tickfont=dict(size=13),
+        ),
+        xaxis=dict(
+            showticklabels=False, showline=True, linecolor="black", linewidth=4,
+            range=[_X_MIN, _x_max],
+        ),
+        # Légende en haut à droite, dans l'ordre de la pile (le dernier poste = le plus haut)
+        legend=dict(traceorder="reversed", x=0.99, xanchor="right", y=0.99, yanchor="top", font=dict(size=15)),
+    )
+
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
+
+    # Export : les données TRACÉES (par seuil : n, moyennes exactes, valeurs arrondies, total, %)
+    _export = _stats.rename({_k: f"moyenne_{_k}" for _k in _POSTES}).with_columns(
+        *[pl.Series(f"arrondi_{_k}", [_b["v"][_k] for _b in _valeurs]) for _k in _POSTES],
+        pl.Series("total_batiment", [_b["total"] for _b in _valeurs]),
+        *[pl.Series(f"pct_{_k}", [round(100 * _b["v"][_k] / _b["base_pct"]) if _b["base_pct"] else 0 for _b in _valeurs])
+          for _k in _BULLES],
+    )
+
+    _note_exclus = (
+        mo.md(f"*{_nb_exclus} bâtiment(s) écarté(s) : au moins un des 4 postes "
+              "(composants, chantier, énergie, eau) n'est pas renseigné.*")
+        if _nb_exclus else mo.md("")
+    )
+    mo.vstack([_graphique, _note_exclus, boutons_export(_export, "graphique_2_repartition_impact_carbone")])
+    return
+
+
+@app.cell(hide_code=True)
+def param_graphique_3(mo, panneau_filtres):
+    # Paramètre propre au graphique 3 (le seul qui utilise les 13 lots)
+    valeur_exclusion_lots = mo.ui.range_slider(start=0, stop=500, step=10, value=[0, 300], label="Un lot est compris entre :", show_value=True)
+
+    mo.vstack([
+        mo.md("### Paramètres du graphique 3"),
         panneau_filtres({
-            "Graphique 2": mo.vstack([
+            "Graphique 3": mo.vstack([
                 valeur_exclusion_lots,
                 mo.md("*pour exclure les valeurs anormales (un lot hors de cette plage est ignoré dans la moyenne)*"),
             ]),
@@ -1470,15 +1761,16 @@ def param_graphique_2(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_2(resume_filtres):
-    # Résumé des filtres actifs du graphique 2 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_3(resume_filtres):
+    # Résumé des filtres actifs du graphique 3 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres()
     return
 
 
 @app.cell(hide_code=True)
-def graphique_2(
+def graphique_3(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
     SOUS_TITRE_FILTRES,
@@ -1491,7 +1783,7 @@ def graphique_2(
     valeur_exclusion_lots,
 ):
     # ============================================================================
-    # CELLULE — Graphique 2 (lots)
+    # CELLULE — Graphique 3 (lots)
     #
     # Part de DATA_brut (variable globale, cellule d'extraction),
     # AUCUN appel réseau ici. Applique tous les filtres temps réel en polars :
@@ -1671,7 +1963,7 @@ def graphique_2(
         template="plotly_white",
         title={
             "text": (
-                f"<b>Graphique 2 — {GRAPHIQUES[2]} — {dropdown_usage.value}</b><br>"
+                f"<b>Graphique 3 — {GRAPHIQUES[3]} — {dropdown_usage.value}</b><br>"
                 f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
         },
@@ -1685,25 +1977,25 @@ def graphique_2(
         margin={"l": 60, "r": 20, "t": 90, "b": 60},
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : les données TRACÉES (IC moyen de chaque lot, par seuil)
     mo.vstack([_graphique, boutons_export(
         _df_long.drop("_lot").with_columns(pl.col("composant").replace(_NOMS_LOTS).alias("lot")).drop("composant"),
-        "graphique_2_ic_moyen_par_lot",
+        "graphique_3_ic_moyen_par_lot",
     )])
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_3(mo, panneau_filtres):
+def param_graphique_4(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 3.
+    # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 4.
     # Le matériau n'y figure pas : c'est l'axe du graphique.
     # ============================================================================
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 3"),
+        mo.md("### Paramètres du graphique 4"),
         panneau_filtres(avec_materiau=False),
     ])
     return
@@ -1711,15 +2003,16 @@ def param_graphique_3(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_3(resume_filtres):
-    # Résumé des filtres actifs du graphique 3 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_4(resume_filtres):
+    # Résumé des filtres actifs du graphique 4 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres(avec_materiau=False)
     return
 
 
 @app.cell(hide_code=True)
-def graphique_3(
+def graphique_4(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     CATEGORIES_MATERIAU,
     COULEURS_CATEGORIES,
@@ -1734,7 +2027,7 @@ def graphique_3(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 3 — Médiane IC Composant par matériau de structure, par seuil
+    # GRAPHIQUE 4 — Médiane IC Composant par matériau de structure, par seuil
     # Variante : la LARGEUR de chaque barre est proportionnelle au pourcentage
     # de bâtiments de cette catégorie (façon "Marimekko") -- les barres d'un
     # même seuil se touchent et couvrent ensemble toute la largeur du groupe.
@@ -1873,7 +2166,7 @@ def graphique_3(
         height=560,
         title=dict(
             text=(
-                f"<b>Graphique 3 — {GRAPHIQUES[3]} — {_USAGE}</b><br>"
+                f"<b>Graphique 4 — {GRAPHIQUES[4]} — {_USAGE}</b><br>"
                 f"<sup>Largeur des barres proportionnelle à la part de bâtiments</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -1888,7 +2181,7 @@ def graphique_3(
         margin=dict(t=120, b=90, l=60, r=20),
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : les données TRACÉES (médiane d'IC composant, effectif et part
     # de chaque catégorie de matériau, par seuil)
@@ -1901,18 +2194,18 @@ def graphique_3(
         .sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99),
               pl.col("categorie_materiau").replace_strict({c: i for i, c in enumerate(CATEGORIES_MATERIAU)}, default=99))
     )
-    mo.vstack([_graphique, boutons_export(_export, "graphique_3_mediane_ic_par_materiau")])
+    mo.vstack([_graphique, boutons_export(_export, "graphique_4_mediane_ic_par_materiau")])
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_4(mo, panneau_filtres):
+def param_graphique_5(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 4.
+    # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 5.
     # ============================================================================
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 4"),
+        mo.md("### Paramètres du graphique 5"),
         panneau_filtres(),
     ])
     return
@@ -1920,15 +2213,16 @@ def param_graphique_4(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_4(resume_filtres):
-    # Résumé des filtres actifs du graphique 4 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_5(resume_filtres):
+    # Résumé des filtres actifs du graphique 5 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres()
     return
 
 
 @app.cell(hide_code=True)
-def graphique_4(
+def graphique_5(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
     SOUS_TITRE_FILTRES,
@@ -1940,7 +2234,7 @@ def graphique_4(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 4 — Q1 / Médiane / Q3 par seuil RE2020, empilé FDES + PEP + DED
+    # GRAPHIQUE 5 — Q1 / Médiane / Q3 par seuil RE2020, empilé FDES + PEP + DED
     #
     # Part de DATA_brut (cellule d'extraction partagée) : AUCUN appel
     # réseau ici. Tous les filtres sont appliqués en polars, en temps réel.
@@ -2072,7 +2366,7 @@ def graphique_4(
         template="plotly_white",
         height=560,
         title=dict(
-            text=f"<b>Graphique 4 — {GRAPHIQUES[4]} — {_USAGE}</b><br>"
+            text=f"<b>Graphique 5 — {GRAPHIQUES[5]} — {_USAGE}</b><br>"
                  f"<sup>Empilement Nombre de FDES + Nombre de PEP + Nombre de DED</sup><br>"
                  f"<sup>{SOUS_TITRE_FILTRES}</sup>",
             font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
@@ -2087,16 +2381,16 @@ def graphique_4(
         annotations=_annotations,
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : les données TRACÉES (Q1 / médiane / Q3 de chaque variable, par seuil)
     _export = _agg.sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99))
-    mo.vstack([_graphique, boutons_export(_export, "graphique_4_quartiles_fiches_par_seuil")])
+    mo.vstack([_graphique, boutons_export(_export, "graphique_5_quartiles_fiches_par_seuil")])
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_5(mo, panneau_filtres):
+def param_graphique_6(mo, panneau_filtres):
     # ============================================================================
     # CELLULE WIDGET — filtre "seuil RE2020" pour le graphique des écarts
     #
@@ -2112,23 +2406,24 @@ def param_graphique_5(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 5"),
-        panneau_filtres({"Graphique 5": choix_seuil}),
+        mo.md("### Paramètres du graphique 6"),
+        panneau_filtres({"Graphique 6": choix_seuil}),
     ])
     return (choix_seuil,)
 
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_5(resume_filtres):
-    # Résumé des filtres actifs du graphique 5 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_6(resume_filtres):
+    # Résumé des filtres actifs du graphique 6 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres()
     return
 
 
 @app.cell(hide_code=True)
-def graphique_5(
+def graphique_6(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
     SOUS_TITRE_FILTRES,
@@ -2145,7 +2440,7 @@ def graphique_5(
     import statistics
     from plotly.subplots import make_subplots
     # ============================================================================
-    # GRAPHIQUE 5 — Écart des bâtiments aux différents seuils (en %)
+    # GRAPHIQUE 6 — Écart des bâtiments aux différents seuils (en %)
     #
     # Part de DATA_brut (cellule d'extraction partagée) : AUCUN appel
     # réseau ici. Tous les filtres sont appliqués en polars, en temps réel.
@@ -2451,25 +2746,25 @@ def graphique_5(
         title=dict(
             text=(
                 f"<span style='font-size:{_TAILLE_TITRE_PRINCIPAL}px'><b>Seuil RE2020 : {_libelle_seuil}</b></span><br>"
-                f"<span style='font-size:16px'>Graphique 5 — {GRAPHIQUES[5]} — {_USAGE}</span><br>"
+                f"<span style='font-size:16px'>Graphique 6 — {GRAPHIQUES[6]} — {_USAGE}</span><br>"
                 f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
         ),
         margin=dict(t=140, b=40, l=60, r=20),
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : les données TRACÉES (un point par bâtiment et par indicateur :
     # écart au seuil en %, avec l'ID du bâtiment)
-    mo.vstack([_graphique, boutons_export(pl.concat(_points_export), "graphique_5_ecarts_aux_seuils")])
+    mo.vstack([_graphique, boutons_export(pl.concat(_points_export), "graphique_6_ecarts_aux_seuils")])
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_6(mo, panneau_filtres):
+def param_graphique_7(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètres propres au graphique 6 (stock C) :
+    # CELLULE WIDGET — paramètres propres au graphique 7 (stock C) :
     #   - filtre "seuil RE2020" (tout coché par défaut = tous les seuils)
     #   - zoom sur l'axe Y (borne haute, en kg C/m²)
     # Le matériau n'y figure pas : c'est l'axe du graphique.
@@ -2487,9 +2782,9 @@ def param_graphique_6(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 6"),
+        mo.md("### Paramètres du graphique 7"),
         panneau_filtres(
-            {"Graphique 6": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
+            {"Graphique 7": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
             avec_materiau=False,
         ),
     ])
@@ -2498,15 +2793,16 @@ def param_graphique_6(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_6(resume_filtres):
-    # Résumé des filtres actifs du graphique 6 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_7(resume_filtres):
+    # Résumé des filtres actifs du graphique 7 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres(avec_materiau=False)
     return
 
 
 @app.cell(hide_code=True)
-def graphique_6(
+def graphique_7(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
     MAPPING_MATERIAU,
@@ -2521,7 +2817,7 @@ def graphique_6(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 6 — Stock de carbone (stock_c) par type de matériau de structure
+    # GRAPHIQUE 7 — Stock de carbone (stock_c) par type de matériau de structure
     # ("Bas Carbone" / "Tout le reste") et par
     # seuil RE2020 : une boîte à moustaches par (catégorie, seuil), avec en
     # pointillés les seuils du label "bâtiment biosourcé" (arrêté du 2 juillet 2024).
@@ -2678,7 +2974,7 @@ def graphique_6(
         height=620,
         title=dict(
             text=(
-                f"<b>Graphique 6 — {GRAPHIQUES[6]} — {_USAGE}</b><br>"
+                f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
                 f"<sup>Pointillés : seuils du label bâtiment biosourcé 2024{_note_masquees}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -2698,18 +2994,18 @@ def graphique_6(
         margin=dict(t=170, b=100, l=60, r=20),
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : statistiques de chaque boîte (toutes les combinaisons, avec un
     # indicateur `boite_affichee` pour celles masquées faute d'effectif)
-    mo.vstack([_graphique, boutons_export(_agg, "graphique_6_stock_c_par_materiau_et_seuil")])
+    mo.vstack([_graphique, boutons_export(_agg, "graphique_7_stock_c_par_materiau_et_seuil")])
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_7(mo, panneau_filtres):
+def param_graphique_8(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètres propres au graphique 7 (éloignement au seuil
+    # CELLULE WIDGET — paramètres propres au graphique 8 (éloignement au seuil
     # IC Construction 2028, logements collectifs).
     #   - écart maximal au-dessus du seuil 2028 qui reste dans le groupe 1
     #   - variable catégorielle comparée (barres 100 % empilées)
@@ -2738,9 +3034,9 @@ def param_graphique_7(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 7"),
+        mo.md("### Paramètres du graphique 8"),
         panneau_filtres(
-            {"Graphique 7": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
+            {"Graphique 8": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
             avec_materiau=False, avec_inconnus=False,
             bascules_graphique=[cacher_autre_7],       # rangée du haut, avec « Valider… »
         ),
@@ -2750,15 +3046,15 @@ def param_graphique_7(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_7(resume_filtres):
-    # Résumé des filtres actifs du graphique 7 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_8(resume_filtres):
+    # Résumé des filtres actifs du graphique 8 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres(avec_materiau=False, avec_inconnus=False)
     return
 
 
 @app.cell(hide_code=True)
-def groupes_graphique_7(
+def groupes_graphique_8(
     DATA_brut,
     SREF_MAX_SLIDER,
     TRANCHES_LOGEMENT_COLLECTIF,
@@ -2770,7 +3066,7 @@ def groupes_graphique_7(
     pl,
 ):
     # ============================================================================
-    # CELLULE — Constitution des 2 groupes du graphique 7 (aucun appel réseau)
+    # CELLULE — Constitution des 2 groupes du graphique 8 (aucun appel réseau)
     #
     # Éloignement au seuil 2028, propre à CHAQUE bâtiment :
     #     ecart_2028 = ic_construction - ic_construction_max_2028
@@ -2824,7 +3120,7 @@ def groupes_graphique_7(
 
     mo.stop(
         _USAGE != USAGE_LOGEMENT_COLLECTIF,
-        mo.md(f"**Graphique 7 : réservé aux logements collectifs** (l'usage choisi est « {_USAGE} »)."),
+        mo.md(f"**Graphique 8 : réservé aux logements collectifs** (l'usage choisi est « {_USAGE} »)."),
     )
 
 
@@ -2894,8 +3190,9 @@ def groupes_graphique_7(
 
 
 @app.cell(hide_code=True)
-def graphique_7_numerique(
+def graphique_8_numerique(
     DATA_groupes_7,
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     INDICATEURS_NUM_7,
     NOMS_GROUPES_7,
@@ -2907,12 +3204,12 @@ def graphique_7_numerique(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 7 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
+    # GRAPHIQUE 8 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
     # les groupes 1a, 1b et 2, un panneau par indicateur (échelles indépendantes).
     # Le groupe 1 est scindé selon l'année de dépôt du permis (la plus ancienne du projet,
-    # comme au graphique 5) : 1a = 2022-2023, 1b = 2024-2025. Les bâtiments du groupe 1
+    # comme au graphique 6) : 1a = 2022-2023, 1b = 2024-2025. Les bâtiments du groupe 1
     # déposés une autre année n'apparaissent dans aucun des deux sous-groupes.
-    # Point = médiane ; barre d'erreur = de Q1 à Q3 (même lecture que le graphique 4).
+    # Point = médiane ; barre d'erreur = de Q1 à Q3 (même lecture que le graphique 5).
     # ============================================================================
 
     from plotly.subplots import make_subplots as _make_subplots
@@ -3021,7 +3318,7 @@ def graphique_7_numerique(
         height=_HAUTEUR_PAR_LIGNE * _nb_lignes + 200,
         title=dict(
             text=(
-                f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
+                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
                 f"<sup>Point = médiane ; barre = de Q1 à Q3 ; groupe 1 scindé par année de dépôt du permis (1a : {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}, 1b : {_ANNEES_1B[0]}-{_ANNEES_1B[-1]})</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -3031,16 +3328,17 @@ def graphique_7_numerique(
         margin=dict(t=170, b=100, l=60, r=20),
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : statistiques de chaque (indicateur, groupe), avec l'indicateur `trace`
-    mo.vstack([_graphique, boutons_export(_stats, "graphique_7_stats_par_groupe")])
+    mo.vstack([_graphique, boutons_export(_stats, "graphique_8_stats_par_groupe")])
     return
 
 
 @app.cell(hide_code=True)
-def graphique_7_categoriel(
+def graphique_8_categoriel(
     DATA_groupes_7,
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     NOMS_GROUPES_7,
     SOUS_TITRE_SANS_MATERIAU,
@@ -3053,7 +3351,7 @@ def graphique_7_categoriel(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 7 (partie catégorielle) — Répartition (%) d'une variable catégorielle
+    # GRAPHIQUE 8 (partie catégorielle) — Répartition (%) d'une variable catégorielle
     # dans chaque groupe : barres 100 % empilées, une barre par groupe.
     # Variables : zone climatique, type de structure principale, matériau de structure.
     # ============================================================================
@@ -3136,7 +3434,7 @@ def graphique_7_categoriel(
         height=560,
         title=dict(
             text=(
-                f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
+                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
                 f"<sup>Répartition : {_LIBELLE_VARIABLE}{_note_masque}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -3147,17 +3445,17 @@ def graphique_7_categoriel(
         margin=dict(t=170, b=80, l=60, r=20),
     )
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : effectif et part de chaque modalité dans chaque groupe
-    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_7_repartition_categorielle")])
+    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_8_repartition_categorielle")])
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_8(mo, panneau_filtres):
+def param_graphique_9(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètre propre au graphique 8 : zoom sur l'axe Y (borne
+    # CELLULE WIDGET — paramètre propre au graphique 9 : zoom sur l'axe Y (borne
     # haute, en °C·h). Le slider est affiché sous le panneau de filtres, hors
     # accordéon (donc toujours visible). Les valeurs proposées : 350, puis de 100 en
     # 100 de 400 à 2500 (une grille 350, 450, ... ne contiendrait pas 1500).
@@ -3172,11 +3470,11 @@ def param_graphique_8(mo, panneau_filtres):
     choix_y_max_dh = mo.ui.slider(
         steps=[Y_MAX_DH_MIN] + list(range(400, Y_MAX_DH_MAX + 1, Y_MAX_DH_PAS)),
         value=Y_MAX_DH_DEFAUT, show_value=True, full_width=True,
-        label="Zoom Axe Y : maximum du DH affiché (graphique 8)",
+        label="Zoom Axe Y : maximum du DH affiché (graphique 9)",
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 8"),
+        mo.md("### Paramètres du graphique 9"),
         panneau_filtres(),
         choix_y_max_dh,
     ])
@@ -3184,15 +3482,16 @@ def param_graphique_8(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_8(resume_filtres):
-    # Résumé des filtres actifs du graphique 8 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_9(resume_filtres):
+    # Résumé des filtres actifs du graphique 9 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres()
     return
 
 
 @app.cell(hide_code=True)
-def graphique_8(
+def graphique_9(
+    CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
     SOUS_TITRE_FILTRES,
@@ -3205,7 +3504,7 @@ def graphique_8(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 8 — Dispersion du DH (degrés-heures) PAR ZONE, par zone climatique,
+    # GRAPHIQUE 9 — Dispersion du DH (degrés-heures) PAR ZONE, par zone climatique,
     # pour les zones traversantes et non traversantes : une boîte à moustaches et
     # les points individuels pour chaque (zone climatique, traversante ou non).
     #
@@ -3413,7 +3712,7 @@ def graphique_8(
         height=620,
         title=dict(
             text=(
-                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
+                f"<b>Graphique 9 — {GRAPHIQUES[9]} — {_USAGE}</b><br>"
                 f"<sup>{_zones.height} zones de {_zones['ID'].n_unique()} bâtiments{_note_masquees}</sup><br>"
                 + (f"<sup>{(_note_exclues + _note_axe).lstrip(' —')}</sup><br>" if (_note_exclues or _note_axe) else "")
                 + f"<sup>{SOUS_TITRE_FILTRES}</sup>"
@@ -3440,12 +3739,12 @@ def graphique_8(
     for _annotation in _annotations_dh_max:
         _fig.add_annotation(**_annotation)
 
-    _graphique = mo.ui.plotly(_fig)
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : statistiques de chaque (zone climatique, traversante ou non)
     mo.vstack([_graphique, boutons_export(
         _agg.sort("zone_climatique", "is_traversant", descending=[False, True]),
-        "graphique_8_dh_par_zone_climatique",
+        "graphique_9_dh_par_zone_climatique",
     )])
     return
 
