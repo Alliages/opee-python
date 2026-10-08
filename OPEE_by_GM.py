@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.94"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "07/10/2026 23:31"
+    VERSION = "0.95"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "08/10/2026 12:06"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 7 : inversion de l'ordre des graphiques « stock de carbone » et « IC composant lots 3 + 4 + 6 »"),
+        (VERSION, "Graphique 8 : dispersion du DH par zone climatique (zones traversantes / non traversantes). Nouvelles colonnes par zone : dh_zones, is_traversant_zones, dh_max_zones"),
+        ("0.94", "Graphique 7 : inversion de l'ordre des graphiques « stock de carbone » et « IC composant lots 3 + 4 + 6 »"),
         ("0.93", "Graphique 7 (numérique) : groupe 1 scindé en 1a (dépôt 2022-2023) et 1b (dépôt 2024-2025)"),
         ("0.92b", "Correction mineure : graphique 7, « Masquer Autre » placé avec « Valider… » en haut des filtres"),
         ("0.92", "Amélioration visuelle"),
@@ -197,6 +198,7 @@ def liste_graphiques(mo):
         5: "Écart des bâtiments aux seuils réglementaires (%)",
         6: "Stock de carbone par type de matériau de structure et seuil RE2020",
         7: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
+        8: "Dispersion du DH par zone climatique, zones traversantes et non traversantes",
     }
 
     mo.md(
@@ -567,7 +569,7 @@ def extraction_unique(
     mo.stop(not button_lancer.value)
     # ============================================================================
     # CELLULE D'EXTRACTION UNIQUE — un seul appel réseau à Turso, partagé par
-    # TOUS les graphiques (1 à 6).
+    # TOUS les graphiques (1 à 8).
     #
     # Ne dépend QUE de dropdown_usage (et du bouton). Tous les autres filtres
     # (règles de validation, min/max, surface, années, attestation, zone
@@ -611,6 +613,19 @@ def extraction_unique(
     _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset", "surface_murs_rset"]
     # Surfaces totales des zones (table zone_open_data, une ligne par zone)
     _COLS_ZONE = ["misurf_tot", "mbsurf_tot"]
+    # Colonnes "une valeur PAR ZONE" : un bâtiment a 1 à n zones, on garde toutes
+    # les valeurs sous forme de liste. {nom dans le DataFrame : (colonne de la table
+    # zone_open_data, type SQL)}. Chaque liste est triée par numéro de zone (zone_index) ;
+    # la valeur de rang n correspond donc à la même zone dans les trois listes.
+    #   - dh_zones            : DH de chaque zone (le DH du bâtiment, dh_batiment, en est le max)
+    #   - is_traversant_zones : la zone est-elle traversante (True / False) ?
+    #   - dh_max_zones        : DH max réglementaire de chaque zone (graphique 8)
+    _COLS_ZONE_LISTES = {
+        "dh_zones": ("dh_zone", "REAL"),
+        "is_traversant_zones": ("is_traversant", "INTEGER"),
+        "dh_max_zones": ("dh_max", "REAL"),
+    }
+    _COL_ORDRE_ZONE = "zone_index"
     # Indicateurs et seuils du graphique "écarts aux seuils"
     # NB : il n'existe pas de colonne ic_energie_max_2031 dans la base -- le
     # seuil IC Énergie n'est donc défini que pour 2022/2025/2028.
@@ -657,6 +672,8 @@ def extraction_unique(
         *[f"b.{col}" for col in _COLS_ECARTS],
         *[f"b.{col}" for col in _COLS_SUPPLEMENTAIRES],
         *[f"z.{col}" for col in _COLS_ZONE],
+        *[f"z.{nom}_json" for nom in _COLS_ZONE_LISTES],   # listes par zone (JSON), décodées ensuite
+        f"z.{_COL_ORDRE_ZONE}_json",                       # n° de zone, sert à trier les listes
         f"b.{_USAGE_COL} AS usage",
         "pf.annees_depot_pc_json",
         "pf.types_attestation_json",
@@ -667,6 +684,17 @@ def extraction_unique(
     _CLE_BATIMENT_ZONE = "CAST(COALESCE(batiment_index, 0) AS TEXT)"
     _CLE_BATIMENT_B = "CAST(COALESCE(b.batiment_index, 0) AS TEXT)"
     _agg_zone = ",\n                ".join(f"MAX({col}) AS {col}" for col in _COLS_ZONE)
+    # Listes par zone : json_group_array SANS DISTINCT (deux zones de même valeur
+    # restent deux valeurs). CAST pour des types homogènes dans le JSON ; une valeur
+    # absente (NULL) reste dans la liste (null) pour conserver le rang.
+    _listes_zone = [
+        *[(nom, col, _type) for nom, (col, _type) in _COLS_ZONE_LISTES.items()],
+        (_COL_ORDRE_ZONE, _COL_ORDRE_ZONE, "INTEGER"),
+    ]
+    _agg_zone += ",\n                " + ",\n                ".join(
+        f"json_group_array(CAST({col} AS {_type})) AS {nom}_json"
+        for nom, col, _type in _listes_zone
+    )
 
     # La CTE regroupe, par projet, toutes les années et attestations (sous forme
     # de listes JSON, non filtrées) : elles sont filtrées ensuite en polars.
@@ -685,6 +713,9 @@ def extraction_unique(
         -- valeur de misurf_tot / mbsurf_tot -> une seule valeur par bâtiment (MAX ignore
         -- les NULL et donne la valeur commune). Clé = projet_id + batiment_index (NULL -> 0,
         -- comme pour l'identifiant "ID"), comparée en texte pour éviter tout écart de type.
+        -- Les valeurs PAR ZONE (DH, traversant, DH max) sont rassemblées en listes JSON ;
+        -- leur tri par n° de zone est fait ensuite en polars (l'ordre d'un
+        -- regroupement SQL n'est pas garanti).
         zones_info AS (
             SELECT
                 {_PID_COL},
@@ -744,6 +775,30 @@ def extraction_unique(
         pl.col("annees_depot_pc_json").cast(pl.Utf8).str.json_decode(pl.List(pl.Int64)).alias("annees_depot_pc"),
         pl.col("types_attestation_json").cast(pl.Utf8).str.json_decode(pl.List(pl.Utf8)).alias("types_attestation"),
     ).drop(["annees_depot_pc_json", "types_attestation_json"])
+
+    # Listes PAR ZONE (dh_zones, is_traversant_zones, dh_max_zones) :
+    #   1. décodage JSON -> listes de nombres (is_traversant : 0/1 -> False/True) ;
+    #   2. tri des trois listes par n° de zone (zone_index) : le rang n désigne la
+    #      même zone dans chaque liste. Bâtiment sans zone -> listes NULL.
+    _TYPES_LISTES_ZONE = {"dh_zones": pl.Float64, "is_traversant_zones": pl.Int64,
+                          "dh_max_zones": pl.Float64}
+    _df = _df.with_columns(
+        *[pl.col(f"{_nom}_json").cast(pl.Utf8).str.json_decode(pl.List(_type)).alias(_nom)
+          for _nom, _type in _TYPES_LISTES_ZONE.items()],
+        pl.col(f"{_COL_ORDRE_ZONE}_json").cast(pl.Utf8).str.json_decode(pl.List(pl.Int64)).alias("_ordre_zone"),
+    ).drop([f"{_nom}_json" for _nom in _TYPES_LISTES_ZONE] + [f"{_COL_ORDRE_ZONE}_json"])
+
+    _a_trier = [*_TYPES_LISTES_ZONE, "_ordre_zone"]
+    _lignes_zone = (
+        _df.select("ID", *_a_trier)
+        .filter(pl.col("_ordre_zone").is_not_null())
+        .explode(_a_trier)                                  # une ligne par zone
+        .sort(["ID", "_ordre_zone"], nulls_last=True)       # tri par n° de zone
+        .group_by("ID", maintain_order=True)
+        .agg([pl.col(_nom) for _nom in _TYPES_LISTES_ZONE])  # on regroupe en listes
+    )
+    _df = _df.drop(list(_TYPES_LISTES_ZONE) + ["_ordre_zone"]).join(_lignes_zone, on="ID", how="left")
+    _df = _df.with_columns(pl.col("is_traversant_zones").list.eval(pl.element().cast(pl.Boolean)))
 
     # Variable globale (pas de préfixe _) : lue par les cellules graphiques.
     DATA_brut = _df
@@ -3095,6 +3150,258 @@ def graphique_7_categoriel(
 
     # Export : effectif et part de chaque modalité dans chaque groupe
     mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_7_repartition_categorielle")])
+    return
+
+
+@app.cell(hide_code=True)
+def param_graphique_8(mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE WIDGET — graphique 8 (DH par zone climatique) : pas de paramètre
+    # propre, seulement les filtres communs (matériau de structure compris).
+    # ============================================================================
+
+    mo.vstack([
+        mo.md("### Paramètres du graphique 8"),
+        panneau_filtres(),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_8(resume_filtres):
+    # Résumé des filtres actifs du graphique 8 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres()
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_8(
+    GRAPHIQUES,
+    DATA_brut,
+    SOUS_TITRE_FILTRES,
+    appliquer_filtres,
+    boutons_export,
+    dropdown_usage,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # GRAPHIQUE 8 — Dispersion du DH (degrés-heures) PAR ZONE, par zone climatique,
+    # pour les zones traversantes et non traversantes : une boîte à moustaches et
+    # les points individuels pour chaque (zone climatique, traversante ou non).
+    #
+    # Unité du graphique = la ZONE (et non le bâtiment) : un bâtiment a 1 à n zones,
+    # chacune avec son DH (listes `dh_zones`, `is_traversant_zones`, `dh_max_zones`,
+    # triées par n° de zone). Le DH du bâtiment (dh_batiment) est le plus grand des
+    # DH de ses zones, mais ici on trace chaque zone.
+    # ============================================================================
+
+
+    # ============================================================================
+    # PARAMÈTRES
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+
+    # Ordre d'affichage des zones climatiques (les autres valeurs, s'il y en a,
+    # sont ajoutées à la fin par ordre alphabétique)
+    _ORDRE_ZONES_CLIMATIQUES = ["H1a", "H1b", "H1c", "H2a", "H2b", "H2c", "H2d", "H3"]
+
+    # Deux groupes de zones : libellé -> (valeur de is_traversant, couleur, décalage en x)
+    _GROUPES = {
+        "Traversante": (True, "#2A7F62", -0.2),
+        "Non traversante": (False, "#D9822B", 0.2),
+    }
+    _LARGEUR_BOITE = 0.32      # largeur d'une boîte (unités de l'axe x : 1 = écart entre zones climatiques)
+    _NB_MIN_PAR_BOITE = 5      # une boîte de moins de 5 zones n'est pas tracée (les points le sont)
+
+    # Repères réglementaires (DH)
+    _DH_MAX_REGLEMENTAIRE = 1250
+    _COULEUR_DH_MAX = "#C0392B"
+    _DH_SEUIL_BAS = 350
+    _COULEUR_SEUIL_BAS = "#888888"
+
+    _TAILLE_TITRE_GRAPHIQUE = 20
+
+
+    # ============================================================================
+    # 1. FILTRAGE (filtres communs, sur les bâtiments) PUIS UNE LIGNE PAR ZONE
+    # ============================================================================
+
+    _df = appliquer_filtres(DATA_brut)
+
+    mo.stop(_df.height == 0, mo.md("**Aucun bâtiment ne correspond aux filtres choisis.**"))
+
+    # Les trois listes ont la même longueur et le même ordre (par n° de zone) :
+    # `explode` les déplie ensemble, une ligne par zone.
+    _zones = (
+        _df.filter(pl.col("dh_zones").is_not_null() & pl.col("zone_climatique").is_not_null())
+        .select("ID", "zone_climatique", "dh_zones", "is_traversant_zones", "dh_max_zones")
+        .explode("dh_zones", "is_traversant_zones", "dh_max_zones")
+        .rename({"dh_zones": "dh_zone", "is_traversant_zones": "is_traversant", "dh_max_zones": "dh_max_zone"})
+        .with_row_index("rang_global")
+    )
+    # n° de la zone dans son bâtiment (1, 2, ...), pour l'infobulle
+    _zones = _zones.with_columns((pl.col("rang_global").rank("ordinal").over("ID") ).alias("n_zone"))
+    _nb_zones_total = _zones.height
+
+    _sans_dh = _zones.filter(pl.col("dh_zone").is_null()).height
+    _sans_trav = _zones.filter(pl.col("dh_zone").is_not_null() & pl.col("is_traversant").is_null()).height
+    _zones = _zones.filter(pl.col("dh_zone").is_not_null() & pl.col("is_traversant").is_not_null())
+    print(f"  zones : {_nb_zones_total} ; sans DH : {_sans_dh} ; sans information « traversant » : {_sans_trav}")
+
+    mo.stop(_zones.height == 0, mo.md("**Aucune zone avec un DH et une information « traversant » pour ces filtres.**"))
+
+
+    # ============================================================================
+    # 2. STATISTIQUES PAR (zone climatique, traversante ou non)
+    # ============================================================================
+
+    _agg = (
+        _zones.group_by(["zone_climatique", "is_traversant"]).agg(
+            pl.len().alias("nb_zones"),
+            pl.col("dh_zone").min().alias("min"),
+            pl.col("dh_zone").quantile(0.25).alias("q1"),
+            pl.col("dh_zone").median().alias("mediane"),
+            pl.col("dh_zone").quantile(0.75).alias("q3"),
+            pl.col("dh_zone").max().alias("max"),
+            pl.col("dh_max_zone").max().alias("dh_max_maximum"),   # plus grand DH max réglementaire du groupe
+        )
+        .with_columns((pl.col("nb_zones") >= _NB_MIN_PAR_BOITE).alias("boite_affichee"))
+    )
+
+    # Zones climatiques présentes, dans l'ordre voulu
+    _presentes = _agg["zone_climatique"].unique().to_list()
+    _zones_climatiques = (
+        [z for z in _ORDRE_ZONES_CLIMATIQUES if z in _presentes]
+        + sorted(z for z in _presentes if z not in _ORDRE_ZONES_CLIMATIQUES)
+    )
+    _position = {z: i for i, z in enumerate(_zones_climatiques)}   # abscisse de chaque zone climatique
+    _nb_masquees = _agg.filter(~pl.col("boite_affichee")).height
+
+
+    # ============================================================================
+    # 3. GRAPHIQUE
+    # ============================================================================
+
+    _fig = go.Figure()
+    _annotations_dh_max = []
+    _n_par_groupe = {}    # {(zone climatique, is_traversant): nombre de zones}, pour les étiquettes de l'axe
+
+    for _libelle, (_trav, _couleur, _decalage) in _GROUPES.items():
+        _z = _zones.filter(pl.col("is_traversant") == _trav).with_columns(
+            (pl.col("zone_climatique").replace_strict(_position, default=None, return_dtype=pl.Int64) + _decalage).alias("x")
+        )
+        if _z.height == 0:
+            continue
+        _infobulle = [
+            f"{_id} — zone {_n}" + (f"<br>DH max : {_m:.0f}" if _m is not None else "")
+            for _id, _n, _m in zip(_z["ID"], _z["n_zone"], _z["dh_max_zone"])
+        ]
+
+        # Boîte (sans points), uniquement pour les groupes d'au moins _NB_MIN_PAR_BOITE zones
+        _gros = _agg.filter((pl.col("is_traversant") == _trav) & pl.col("boite_affichee"))["zone_climatique"].to_list()
+        _zb = _z.filter(pl.col("zone_climatique").is_in(_gros))
+        if _zb.height:
+            _fig.add_trace(go.Box(
+                x=_zb["x"].to_list(), y=_zb["dh_zone"].to_list(),
+                name=_libelle, legendgroup=_libelle, marker_color=_couleur,
+                boxpoints=False, line=dict(width=1.4), width=_LARGEUR_BOITE,
+                hoverinfo="skip",
+            ))
+
+        # Points individuels de TOUS les groupes (même ceux sans boîte)
+        _fig.add_trace(go.Box(
+            x=_z["x"].to_list(), y=_z["dh_zone"].to_list(),
+            name=_libelle, legendgroup=_libelle, showlegend=not _zb.height,
+            marker=dict(color=_couleur, size=4, opacity=0.5),
+            boxpoints="all", jitter=0.4, pointpos=0, width=_LARGEUR_BOITE,
+            line=dict(width=0), fillcolor="rgba(0,0,0,0)",
+            hoveron="points", customdata=_infobulle,
+            hovertemplate=f"<b>{_libelle}</b><br>DH : %{{y:.0f}}<br>%{{customdata}}<extra></extra>",
+        ))
+
+        for _r in _agg.filter(pl.col("is_traversant") == _trav).iter_rows(named=True):
+            _x = _position[_r["zone_climatique"]] + _decalage
+            _n_par_groupe[(_r["zone_climatique"], _trav)] = _r["nb_zones"]
+
+            # Valeur de la médiane, lisible en permanence, à droite de la boîte
+            if _r["boite_affichee"]:
+                _fig.add_trace(go.Scatter(
+                    x=[_x + _LARGEUR_BOITE / 2], y=[_r["mediane"]],
+                    mode="text", text=[f"<b>{_r['mediane']:.0f}</b>"], textposition="middle right",
+                    textfont=dict(color=_couleur, size=12),
+                    showlegend=False, hoverinfo="skip", cliponaxis=False,
+                ))
+
+            # DH max réglementaire du groupe, UNIQUEMENT s'il dépasse 1250 : petit
+            # chiffre en haut de la colonne, dans la couleur du groupe
+            if _r["dh_max_maximum"] is not None and _r["dh_max_maximum"] > _DH_MAX_REGLEMENTAIRE:
+                _annotations_dh_max.append(dict(
+                    x=_x, y=1.0, xref="x", yref="paper", yanchor="bottom", showarrow=False,
+                    text=f"DHmax<br>{_r['dh_max_maximum']:.0f}", font=dict(size=11, color=_couleur),
+                ))
+
+    # Repères horizontaux
+    _fig.add_hline(
+        y=_DH_MAX_REGLEMENTAIRE, line=dict(color=_COULEUR_DH_MAX, width=1.5, dash="dash"),
+        annotation_text=f"DH max réglementaire ({_DH_MAX_REGLEMENTAIRE})", annotation_position="top left",
+        annotation_font=dict(size=11, color=_COULEUR_DH_MAX),
+    )
+    _fig.add_hline(
+        y=_DH_SEUIL_BAS, line=dict(color=_COULEUR_SEUIL_BAS, width=1, dash="dot"),
+        annotation_text=f"Seuil bas ({_DH_SEUIL_BAS})", annotation_position="bottom left",
+        annotation_font=dict(size=11, color=_COULEUR_SEUIL_BAS),
+    )
+
+    _note_masquees = (
+        f" — {_nb_masquees} boîte(s) de moins de {_NB_MIN_PAR_BOITE} zones non tracée(s) (points conservés)"
+        if _nb_masquees else ""
+    )
+    _note_exclues = (
+        f" — zones écartées : {_sans_dh} sans DH, {_sans_trav} sans information « traversant »"
+        if (_sans_dh or _sans_trav) else ""
+    )
+    _fig.update_layout(
+        template="plotly_white",
+        height=620,
+        title=dict(
+            text=(
+                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
+                f"<sup>{_zones.height} zones de {_zones['ID'].n_unique()} bâtiments{_note_masquees}{_note_exclues}</sup><br>"
+                f"<sup>{SOUS_TITRE_FILTRES}</sup>"
+            ),
+            font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
+        ),
+        xaxis=dict(
+            title="Zone climatique  (n zones traversantes / n zones non traversantes)",
+            tickmode="array", tickvals=list(range(len(_zones_climatiques))),
+            ticktext=[
+                f"<b>{_zc}</b><br><span style='font-size:11px;color:gray'>"
+                f"n = {_n_par_groupe.get((_zc, True), 0)} / {_n_par_groupe.get((_zc, False), 0)}</span>"
+                for _zc in _zones_climatiques
+            ],
+            range=[-0.6, len(_zones_climatiques) - 0.4],
+        ),
+        yaxis=dict(title="DH de la zone (°C·h)", rangemode="tozero"),
+        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top"),
+        margin=dict(t=190, b=110, l=60, r=20),
+    )
+
+    # add_annotation (et non update_layout(annotations=...)) : ajoute aux annotations
+    # des repères horizontaux au lieu de les écraser
+    for _annotation in _annotations_dh_max:
+        _fig.add_annotation(**_annotation)
+
+    _graphique = mo.ui.plotly(_fig)
+
+    # Export : statistiques de chaque (zone climatique, traversante ou non)
+    mo.vstack([_graphique, boutons_export(
+        _agg.sort("zone_climatique", "is_traversant", descending=[False, True]),
+        "graphique_8_dh_par_zone_climatique",
+    )])
     return
 
 
