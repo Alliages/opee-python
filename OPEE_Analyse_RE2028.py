@@ -37,11 +37,14 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.52"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "09/10/2026 00:05"
+    VERSION = "0.53"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "09/10/2026 01:10"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Analyse2 : profil des classes (médianes par classe en dégradé, choix constructifs "
+        (VERSION, "Analyse3 : macro-lots par classe et cascade, lot 8 par sous-lot, sous-lot 8.1 par "
+                  "famille de générateur, effet puissance (W/m²) contre effet donnée (kg/kW), nature des "
+                  "fiches 8.1 (table composant, sur demande) ; booléens lus de façon robuste"),
+        ("0.52", "Analyse2 : profil des classes (médianes par classe en dégradé, choix constructifs "
                   "et techniques, tornade A contre B en écarts interquartiles), lots 8, 8.1 et 9 inclus ; "
                   "sélecteur de période (toutes, 2022-2023, 2024-2025, comparaison des deux)"),
         ("0.51", "Analyse1 : classes d'écart au budget composant 2028, nombre et part des projets "
@@ -208,7 +211,7 @@ def sommaire_analyses(mo):
         5: "Simulateur de leviers",
         6: "Effet propre de chaque levier (régression)",
     }
-    ANALYSES_PRETES = {1, 2}    # analyses déjà construites
+    ANALYSES_PRETES = {1, 2, 3} # analyses déjà construites
 
     _lignes = "\n".join(
         f"- **Analyse{_n}** — {_titre}" + ("" if _n in ANALYSES_PRETES else " *(à venir)*")
@@ -459,6 +462,7 @@ def constantes_analyse(pl):
         LIBELLE_MATERIAU_NUL,
         MACRO_LOTS,
         MATERIAUX_OPTIONS,
+        NB_SOUS_LOTS,
         SEUIL_DIFFICULTE,
         SREF_MIN_COLLECTIF,
         SURFACE_PAR_LOGEMENT,
@@ -529,7 +533,8 @@ def extraction_unique(
         "dc_materiau_structure", "dc_type_structure_principale", "stock_c",
         "generateur_principal_ch", "generateur_principal_ecs",
         "famille_synthese_generateur_ch", "famille_synthese_generateur_ecs",
-        "vecteur_energie_principal_ch", "presence_reseau",
+        "synthese_generateur_ch", "vecteur_energie_principal_ch",
+        "presence_reseau", "presence_gaz", "presence_bois",
         "puissance_thermique_max_restituable_ch_1", "l_type_ventilation_mecanique",
     ]
     # Méthodologie : données environnementales
@@ -1513,7 +1518,8 @@ def calcul_analyse2(
             .when(_ventil.str.contains("DF|[Dd]ouble")).then(pl.lit("Double flux"))
             .when(_ventil.str.contains("SF|[Ss]imple")).then(pl.lit("Simple flux"))
             .otherwise(pl.lit("Autre ventilation")).alias("ventilation"),
-            pl.when(pl.col("presence_reseau").cast(pl.Boolean)).then(pl.lit("Raccordé à un réseau"))
+            pl.when(pl.col("presence_reseau").cast(pl.Utf8).str.to_lowercase().is_in(["1", "true", "vrai"]))
+            .then(pl.lit("Raccordé à un réseau"))
             .otherwise(pl.lit("Non raccordé")).alias("reseau"),
         )
     )
@@ -1839,6 +1845,623 @@ def tornade_analyse2(
     ])
     return
 
+
+# ================================================================================
+# ANALYSE3 — Macro-lots par classe, puis focus sur le lot 8 et le sous-lot 8.1
+# ================================================================================
+
+
+@app.cell(hide_code=True)
+def widgets_analyse3(CLASSES_2028, mo):
+    # ============================================================================
+    # CELLULE — Analyse3 : widgets propres à l'analyse
+    #   - classe_depart_a3 / classe_arrivee_a3 : cascade 3a (d'une classe à l'autre)
+    #   - bouton_fiches_a3 : lance la 2e requête réseau (fiches du sous-lot 8.1,
+    #     table composant), utilisée seulement par 3e
+    # ============================================================================
+    classe_depart_a3 = mo.ui.dropdown(options=CLASSES_2028, value=CLASSES_2028[4], label="Cascade : de la classe")
+    classe_arrivee_a3 = mo.ui.dropdown(options=CLASSES_2028, value=CLASSES_2028[0], label="vers la classe")
+    bouton_fiches_a3 = mo.ui.run_button(label="Charger les fiches du sous-lot 8.1 (table composant)")
+    return bouton_fiches_a3, classe_arrivee_a3, classe_depart_a3
+
+
+@app.cell(hide_code=True)
+def param_analyse3(ANALYSES, classe_arrivee_a3, classe_depart_a3, mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE — Analyse3 : titre, lecture et panneau de filtres
+    # ============================================================================
+    mo.vstack([
+        mo.md(
+            f"## Analyse3 — {ANALYSES[3]}\n\n"
+            "Où se loge l'écart au budget 2028 ? Comptage **par bâtiment**, en **moyennes** "
+            "(elles s'additionnent : gros œuvre + second œuvre + lots techniques = IC composant).  \n"
+            "**3a.** Macro-lots par classe, puis cascade d'une classe à l'autre.  \n"
+            "**3b.** Lot 8 décomposé en sous-lots 8.1 à 8.7.  \n"
+            "**3c.** Sous-lot 8.1 par famille de générateur de chauffage.  \n"
+            "**3d.** Effet « puissance » (W/m²) contre effet « donnée » (kgCO₂e par kW installé).  \n"
+            "**3e.** Nature des fiches du sous-lot 8.1 (PEP individuelles, collectives, DED…)."
+        ),
+        panneau_filtres({"Analyse3 : cascade (3a)": mo.vstack([classe_depart_a3, classe_arrivee_a3])}),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_analyse3(DATA_base, appliquer_filtres, resume_filtres):
+    # Résumé SOUS les filtres (cellule séparée : elle lit les valeurs des widgets).
+    DATA_a3 = appliquer_filtres(DATA_base, verbeux=False)
+    resume_filtres(DATA_a3)
+    return (DATA_a3,)
+
+
+@app.cell(hide_code=True)
+def calcul_analyse3(CLASSES_2028, COLS_MACRO_LOTS, DATA_a3, NB_SOUS_LOTS, pl):
+    # ============================================================================
+    # CELLULE — Analyse3 : calculs (aucun affichage)
+    #
+    #   1. Bâtiments classés (hors « Inconnu »)
+    #   2. Famille de générateur de chauffage (3c, 3d), déduite de
+    #      synthese_generateur_ch (« principal | secondaire »), presence_reseau,
+    #      presence_gaz. Un appoint effet Joule ne fait pas un système hybride.
+    #      PAC collective / individuelle : non disponible dans la base -> PAC
+    #      découpées par type (air / eau, air / air, autre).
+    #   3. Effet puissance / effet donnée (3d), sref hors « plateau » :
+    #        puissance_w_m2    = puissance_thermique_max_restituable_ch_1 × 1000 / sref
+    #        intensite_kg_kw   = ic_composant_sous_lot_8_1 × sref / puissance
+    #      -> sous-lot 8.1 (kg/m²) = puissance_w_m2 × intensite_kg_kw / 1000
+    #   4. MACRO_A3 : moyennes par classe (macro-lots, IC composant, budget)
+    #      LOT8_A3  : moyennes par classe des sous-lots 8.1 à 8.7
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _NB_SOUS_LOTS_8 = NB_SOUS_LOTS[8]
+    COLS_SOUS_LOTS_8 = [f"ic_composant_sous_lot_8_{j}" for j in range(1, _NB_SOUS_LOTS_8 + 1)]
+    _PUISSANCE_MIN_KW = 1.0             # puissance jugée non renseignée en dessous
+    FAMILLES_GENERATEUR_A3 = [
+        "PAC air / eau", "PAC air / air", "PAC autre (eau / eau, sol…)",
+        "Hybride PAC + chaudière", "Chaudière gaz", "Réseau de chaleur",
+        "Effet Joule", "Bois", "Autre", "Non renseigné",
+    ]
+
+
+    def _vrai(col):
+        """Booléen robuste : 1 / True / « true » / « vrai » -> True."""
+        return pl.col(col).cast(pl.Utf8).str.to_lowercase().is_in(["1", "true", "vrai"])
+
+
+    # 1. Bâtiments classés -----------------------------------------------------------
+    _df = DATA_a3.filter(pl.col("classe_2028").is_in(CLASSES_2028))
+
+    # 2. Famille de générateur ---------------------------------------------------------
+    _synth = pl.col("synthese_generateur_ch").cast(pl.Utf8)
+    _principal = _synth.str.split(" | ").list.first()
+    _famille = (
+        pl.when(_vrai("presence_reseau")).then(pl.lit("Réseau de chaleur"))
+        .when(_synth.str.contains("PAC") & _synth.str.contains("(?i)chaudi")).then(pl.lit("Hybride PAC + chaudière"))
+        .when(_principal.str.contains("PAC") & _principal.str.contains("(?i)air ?/ ?air")).then(pl.lit("PAC air / air"))
+        .when(_principal.str.contains("PAC") & _principal.str.contains("(?i)air ?/ ?eau")).then(pl.lit("PAC air / eau"))
+        .when(_principal.str.contains("PAC")).then(pl.lit("PAC autre (eau / eau, sol…)"))
+        .when(_principal.str.contains("(?i)chaudi") & (_principal.str.contains("(?i)gaz") | _vrai("presence_gaz")))
+        .then(pl.lit("Chaudière gaz"))
+        .when(_principal.str.contains("(?i)bois|po[êe]le|granul|insert")).then(pl.lit("Bois"))
+        .when(_principal.str.contains("(?i)joule")).then(pl.lit("Effet Joule"))
+        .when(_synth.is_null()).then(pl.lit("Non renseigné"))
+        .otherwise(pl.lit("Autre"))
+    )
+
+    # 3. Effet puissance / effet donnée --------------------------------------------------
+    _sref = pl.when(pl.col("sref_plateau")).then(None).otherwise(pl.col("sref"))
+    _puissance = pl.col("puissance_thermique_max_restituable_ch_1")
+    _puissance_ok = pl.when(_puissance >= _PUISSANCE_MIN_KW).then(_puissance).otherwise(None)
+    DATA_a3_cl = _df.with_columns(
+        _famille.alias("famille_generateur"),
+        (_puissance_ok * 1000 / _sref).alias("puissance_w_m2"),
+        (pl.col("ic_composant_sous_lot_8_1") * _sref / _puissance_ok).alias("intensite_kg_kw"),
+    )
+
+    # 4. Moyennes par classe ---------------------------------------------------------------
+    _ordre = {c: i for i, c in enumerate(CLASSES_2028)}
+    _tri = pl.col("classe_2028").replace_strict(_ordre, default=99)
+    MACRO_A3 = (
+        DATA_a3_cl.group_by("classe_2028").agg(
+            pl.len().alias("n"),
+            *[pl.col(c).mean().alias(c) for c in COLS_MACRO_LOTS.values()],
+            pl.col("ic_composant").mean().alias("ic_composant"),
+            pl.col("budget_composant_2028").mean().alias("budget_composant_2028"),
+        ).sort(_tri)
+    )
+    LOT8_A3 = (
+        DATA_a3_cl.group_by("classe_2028").agg(
+            pl.len().alias("n"),
+            *[pl.col(c).fill_null(0).mean().alias(c) for c in COLS_SOUS_LOTS_8],
+            pl.col("ic_composant_lot_8").mean().alias("ic_composant_lot_8"),
+        ).sort(_tri)
+    )
+    return COLS_SOUS_LOTS_8, DATA_a3_cl, FAMILLES_GENERATEUR_A3, LOT8_A3, MACRO_A3
+
+
+@app.cell(hide_code=True)
+def graphique_3a(
+    CLASSES_2028,
+    COLS_MACRO_LOTS,
+    COULEURS_CLASSES,
+    MACRO_A3,
+    SOUS_TITRE_FILTRES,
+    boutons_export,
+    classe_arrivee_a3,
+    classe_depart_a3,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse3 : 3a. Macro-lots par classe + cascade entre deux classes
+    #
+    #   - Barres empilées : moyenne de chaque macro-lot par classe ; un trait
+    #     noir marque le budget composant 2028 moyen de la classe.
+    #   - Cascade : IC composant moyen de la classe de départ, puis variation de
+    #     chaque macro-lot, jusqu'à l'IC composant moyen de la classe d'arrivée.
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _COULEURS_MACRO = dict(zip(COLS_MACRO_LOTS, ["#2a78d6", "#eb6834", "#1baf7a"]))   # palette validée
+    _COULEUR_TEXTE = "#333333"
+    _COULEUR_BUDGET = "#0b0b0b"
+    _DEPART, _ARRIVEE = classe_depart_a3.value, classe_arrivee_a3.value
+    _N_MIN = 5
+
+    _m = MACRO_A3.filter(pl.col("n") > 0)
+    _classes = [c for c in CLASSES_2028 if c in _m["classe_2028"].to_list()]
+    _lignes = {r["classe_2028"]: r for r in _m.iter_rows(named=True)}
+    _x = [f"{c}<br><sub>n={_lignes[c]['n']}</sub>" for c in _classes]
+
+    # 1. Barres empilées ------------------------------------------------------------
+    _fig = go.Figure()
+    for _nom, _col in COLS_MACRO_LOTS.items():
+        _fig.add_trace(go.Bar(
+            x=_x, y=[_lignes[c][_col] for c in _classes], name=_nom,
+            marker={"color": _COULEURS_MACRO[_nom], "line": {"color": "#ffffff", "width": 2}},
+            text=[f"{_lignes[c][_col]:.0f}" for c in _classes], textposition="inside",
+            insidetextfont={"color": "#ffffff", "size": 12},
+            hovertemplate=f"<b>%{{x}}</b><br>{_nom} : %{{y:.0f}} kgCO₂e/m²<extra></extra>",
+        ))
+    _fig.add_trace(go.Scatter(
+        x=_x, y=[_lignes[c]["budget_composant_2028"] for c in _classes], mode="markers",
+        name="Budget composant 2028 moyen",
+        marker={"symbol": "line-ew", "size": 46, "line": {"color": _COULEUR_BUDGET, "width": 3}},
+        hovertemplate="<b>%{x}</b><br>Budget composant 2028 moyen : %{y:.0f} kgCO₂e/m²<extra></extra>",
+    ))
+    # Total au-dessus de chaque barre
+    for _xi, _c in zip(_x, _classes):
+        _fig.add_annotation(x=_xi, y=_lignes[_c]["ic_composant"], text=f"<b>{_lignes[_c]['ic_composant']:.0f}</b>",
+                            showarrow=False, yshift=12, font={"color": _COULEUR_TEXTE, "size": 13})
+    _fig.update_layout(
+        barmode="stack", height=520, width=None, template="plotly_white", bargap=0.35,
+        title={"text": "<b>Analyse3a — IC composant moyen par macro-lot et par classe</b><br>"
+                       f"<sup>{SOUS_TITRE_FILTRES}</sup>"},
+        xaxis={"title": "Classe d'écart au budget composant 2028"},
+        yaxis={"title": "kgCO₂e/m² (moyenne)", "rangemode": "tozero", "gridcolor": "#ececec"},
+        legend={"orientation": "h", "x": 0, "y": -0.2, "traceorder": "normal"},
+        margin={"l": 60, "r": 20, "t": 90, "b": 110},
+    )
+
+    # 2. Cascade --------------------------------------------------------------------------
+    if _DEPART == _ARRIVEE or _DEPART not in _lignes or _ARRIVEE not in _lignes:
+        _cascade = mo.callout(mo.md("Choisir deux classes différentes, chacune avec au moins un bâtiment."), kind="warn")
+    else:
+        _d, _a = _lignes[_DEPART], _lignes[_ARRIVEE]
+        _deltas = [_a[_col] - _d[_col] for _col in COLS_MACRO_LOTS.values()]
+        _fig2 = go.Figure(go.Waterfall(
+            x=[f"IC composant<br>{_DEPART}", *COLS_MACRO_LOTS, f"IC composant<br>{_ARRIVEE}"],
+            measure=["absolute", *["relative"] * len(_deltas), "total"],
+            y=[_d["ic_composant"], *_deltas, 0],
+            text=[f"{_d['ic_composant']:.0f}", *[f"{v:+.0f}" for v in _deltas], f"{_a['ic_composant']:.0f}"],
+            textposition="outside", cliponaxis=False,
+            textfont={"color": _COULEUR_TEXTE, "size": 13},
+            connector={"line": {"color": "#c3c2b7", "width": 1}},
+            decreasing={"marker": {"color": COULEURS_CLASSES["Conforme 2028"]}},
+            increasing={"marker": {"color": COULEURS_CLASSES["30 à 80 kg"]}},
+            totals={"marker": {"color": "#52514e"}},
+            hovertemplate="<b>%{x}</b><br>%{text} kgCO₂e/m²<extra></extra>",
+        ))
+        _fig2.update_layout(
+            height=460, width=None, template="plotly_white", showlegend=False,
+            title={"text": f"<b>Analyse3a — Cascade : de « {_DEPART} » (n={_d['n']}) "
+                           f"à « {_ARRIVEE} » (n={_a['n']})</b><br>"
+                           "<sup>Variation de l'IC composant moyen, macro-lot par macro-lot "
+                           "(bleu = baisse, rouge = hausse)</sup>"},
+            yaxis={"title": "kgCO₂e/m² (moyenne)", "rangemode": "tozero", "gridcolor": "#ececec"},
+            margin={"l": 60, "r": 20, "t": 90, "b": 60},
+        )
+        _alerte = (
+            [mo.callout(mo.md(f"Moins de {_N_MIN} bâtiments dans une des deux classes : cascade fragile."), kind="warn")]
+            if min(_d["n"], _a["n"]) < _N_MIN else []
+        )
+        _cascade = mo.vstack([*_alerte, mo.ui.plotly(_fig2)])
+
+    mo.vstack([
+        mo.md("### 3a. Macro-lots par classe"),
+        mo.ui.plotly(_fig),
+        _cascade,
+        boutons_export(MACRO_A3, "analyse3a_macro_lots_par_classe"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_3b(CLASSES_2028, COLS_SOUS_LOTS_8, LOT8_A3, SOUS_TITRE_FILTRES, boutons_export, go, mo, pl):
+    # ============================================================================
+    # CELLULE — Analyse3 : 3b. Lot 8 décomposé en sous-lots, par classe (moyennes)
+    # Le sous-lot 8.1 est en bas de la pile et mis en avant (couleur pleine) ;
+    # les autres sous-lots suivent la palette catégorielle validée.
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+    _COULEUR_TEXTE = "#333333"
+
+    _m = LOT8_A3.filter(pl.col("n") > 0)
+    _classes = [c for c in CLASSES_2028 if c in _m["classe_2028"].to_list()]
+    _lignes = {r["classe_2028"]: r for r in _m.iter_rows(named=True)}
+    _x = [f"{c}<br><sub>n={_lignes[c]['n']}</sub>" for c in _classes]
+
+    _fig = go.Figure()
+    for _i, _col in enumerate(COLS_SOUS_LOTS_8):
+        _nom = "Sous-lot " + _col.replace("ic_composant_sous_lot_", "").replace("_", ".")
+        _valeurs = [_lignes[c][_col] for c in _classes]
+        _fig.add_trace(go.Bar(
+            x=_x, y=_valeurs, name=_nom,
+            marker={"color": _PALETTE[_i % len(_PALETTE)], "line": {"color": "#ffffff", "width": 2}},
+            text=[f"{v:.0f}" if _i == 0 else "" for v in _valeurs], textposition="inside",
+            insidetextfont={"color": "#ffffff", "size": 12},
+            hovertemplate=f"<b>%{{x}}</b><br>{_nom} : %{{y:.1f}} kgCO₂e/m²<extra></extra>",
+        ))
+    for _xi, _c in zip(_x, _classes):
+        _total = sum(_lignes[_c][_col] for _col in COLS_SOUS_LOTS_8)
+        _part = 100 * _lignes[_c][COLS_SOUS_LOTS_8[0]] / _total if _total else 0
+        _fig.add_annotation(x=_xi, y=_total, yshift=24, showarrow=False,
+                            text=f"<b>{_total:.0f}</b><br><sub>dont 8.1 : {_part:.0f} %</sub>",
+                            font={"color": _COULEUR_TEXTE, "size": 13})
+    _fig.update_layout(
+        barmode="stack", height=540, width=None, template="plotly_white", bargap=0.35,
+        title={"text": "<b>Analyse3b — Lot 8 (CVC) : sous-lots par classe</b><br>"
+                       f"<sup>{SOUS_TITRE_FILTRES}</sup>"},
+        xaxis={"title": "Classe d'écart au budget composant 2028"},
+        yaxis={"title": "kgCO₂e/m² (moyenne)", "rangemode": "tozero", "gridcolor": "#ececec"},
+        legend={"orientation": "h", "x": 0, "y": -0.2, "traceorder": "normal"},
+        margin={"l": 60, "r": 20, "t": 110, "b": 110},
+    )
+    mo.vstack([
+        mo.md("### 3b. Lot 8 décomposé\n\n*Moyennes par classe ; un sous-lot non renseigné compte pour 0. "
+              "Intitulés des sous-lots : nomenclature RE2020 du lot 8.*"),
+        mo.ui.plotly(_fig),
+        boutons_export(LOT8_A3, "analyse3b_sous_lots_8_par_classe"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_3c_3d(
+    CLASSES_DIFFICILES,
+    DATA_a3_cl,
+    FAMILLES_GENERATEUR_A3,
+    SOUS_TITRE_FILTRES,
+    boutons_export,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse3 : 3c et 3d, par famille de générateur de chauffage
+    #
+    #   3c : distribution du sous-lot 8.1 (kgCO₂e/m²) par famille, en boîtes
+    #        (médiane, quartiles), triées par médiane ; effectif sous chaque boîte.
+    #        Points : bâtiments « difficiles » (> 30 kg) en rouge, autres en bleu.
+    #   3d : deux panneaux côte à côte, mêmes familles, même ordre :
+    #        puissance installée (W/m²)  |  intensité carbone (kgCO₂e par kW)
+    #        8.1 = puissance × intensité / 1000 : un 8.1 élevé vient soit d'une
+    #        forte puissance (dimensionnement), soit d'une fiche lourde (donnée).
+    # Familles de moins de _N_MIN bâtiments écartées (listées sous le graphique).
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _N_MIN = 5
+    _COULEUR_BOITE = "#52514e"
+    _MARGE_P95 = 1.15                  # axe 3d = 95e percentile x 1,15
+    _COULEUR_DIFFICILE = "#d9583a"
+    _COULEUR_ACCESSIBLE = "#2a78d6"
+    _COLONNES_3D = [
+        ("puissance_w_m2", "Puissance installée (W/m²)"),
+        ("intensite_kg_kw", "Intensité carbone (kgCO₂e / kW)"),
+    ]
+    _df = DATA_a3_cl.filter(pl.col("ic_composant_sous_lot_8_1").is_not_null())
+
+    # Familles retenues, triées par médiane du 8.1 (décroissante)
+    _stats = (
+        _df.group_by("famille_generateur").agg(
+            pl.len().alias("n"),
+            pl.col("ic_composant_sous_lot_8_1").median().alias("mediane_8_1"),
+            pl.col("puissance_w_m2").median().alias("mediane_w_m2"),
+            pl.col("intensite_kg_kw").median().alias("mediane_kg_kw"),
+            pl.col("puissance_w_m2").drop_nulls().len().alias("n_puissance"),
+        ).sort("mediane_8_1", descending=True)
+    )
+    _gardees = _stats.filter(pl.col("n") >= _N_MIN)["famille_generateur"].to_list()
+    _ecartees = [
+        f"{r['famille_generateur']} (n={r['n']})"
+        for r in _stats.filter(pl.col("n") < _N_MIN).iter_rows(named=True)
+    ]
+    _n = dict(zip(_stats["famille_generateur"], _stats["n"]))
+    _x_lib = {f: f"{f}<br><sub>n={_n[f]}</sub>" for f in _gardees}
+
+
+    def _boites(fig, colonne, unite, row=None, col=None, horizontal=False):
+        """Une boîte par famille (axe numérique : famille i en position i) +
+        les points des bâtiments, décalés autour de i (décalage fixe),
+        rouges si > 30 kg du budget, bleus sinon. horizontal=True : familles en
+        ordonnée (3d, deux panneaux qui partagent les libellés)."""
+        _ajout = (lambda t: fig.add_trace(t, row=row, col=col)) if row else fig.add_trace
+        for _i, _f in enumerate(_gardees):
+            _d = _df.filter((pl.col("famille_generateur") == _f) & pl.col(colonne).is_not_null())
+            if _d.height == 0:
+                continue
+            _valeurs, _positions = _d[colonne].to_list(), [_i] * _d.height
+            _ajout(go.Box(
+                **({"x": _valeurs, "y": _positions, "orientation": "h"} if horizontal
+                   else {"y": _valeurs, "x": _positions}),
+                name=_f, boxpoints=False, width=0.55, showlegend=False, hoverinfo="skip",
+                fillcolor="rgba(82,81,78,0.08)", line={"color": _COULEUR_BOITE, "width": 1.5},
+            ))
+            for _difficile, _couleur in ((True, _COULEUR_DIFFICILE), (False, _COULEUR_ACCESSIBLE)):
+                _p = _d.filter(pl.col("classe_2028").is_in(CLASSES_DIFFICILES) == _difficile)
+                if _p.height == 0:
+                    continue
+                _decalage = [((_k * 37) % 21 - 10) / 50 for _k in range(_p.height)]   # ±0,2, reproductible
+                _pos = [_i + _e for _e in _decalage]
+                _ajout(go.Scatter(
+                    **({"x": _p[colonne].to_list(), "y": _pos} if horizontal
+                       else {"x": _pos, "y": _p[colonne].to_list()}),
+                    mode="markers",
+                    showlegend=False,
+                    marker={"size": 6, "opacity": 0.75, "color": _couleur,
+                            "line": {"color": "#ffffff", "width": 0.5}},
+                    customdata=_p.select("ID", "classe_2028").rows(),
+                    hovertemplate=(f"<b>{_f}</b><br>%{{{'x' if horizontal else 'y'}:.1f}} {unite}<br>"
+                                   "Bâtiment %{customdata[0]} — %{customdata[1]}<extra></extra>"),
+                ))
+
+
+    # Axe x commun : familles en abscisses 0, 1, 2… avec leur libellé
+    _axe_x = {"tickmode": "array", "tickvals": list(range(len(_gardees))),
+              "ticktext": [_x_lib[f] for f in _gardees], "range": [-0.6, len(_gardees) - 0.4]}
+
+
+    if not _gardees:
+        _sortie = mo.callout(mo.md(f"Aucune famille de générateur avec au moins {_N_MIN} bâtiments."), kind="warn")
+    else:
+        # 3c -----------------------------------------------------------------------------
+        _fig = go.Figure()
+        _boites(_fig, "ic_composant_sous_lot_8_1", "kgCO₂e/m²")
+        # Légende des points (traces fantômes)
+        for _nom, _coul in (("Bâtiment à plus de 30 kg du budget", _COULEUR_DIFFICILE),
+                            ("Bâtiment conforme ou à moins de 30 kg", _COULEUR_ACCESSIBLE)):
+            _fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", name=_nom,
+                                      marker={"size": 8, "color": _coul}))
+        _fig.update_layout(
+            height=520, width=None, template="plotly_white",
+            title={"text": "<b>Analyse3c — Sous-lot 8.1 par famille de générateur de chauffage</b><br>"
+                           f"<sup>{SOUS_TITRE_FILTRES}</sup>"},
+            xaxis={"title": "Famille de générateur (triée par médiane du 8.1)", **_axe_x},
+            yaxis={"title": "Sous-lot 8.1 (kgCO₂e/m²)", "rangemode": "tozero", "gridcolor": "#ececec"},
+            legend={"orientation": "h", "x": 0, "y": -0.25},
+            margin={"l": 60, "r": 20, "t": 90, "b": 130},
+        )
+
+        # 3d -----------------------------------------------------------------------------
+        from plotly.subplots import make_subplots
+        _fig2 = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.04,
+                              subplot_titles=[lib for _, lib in _COLONNES_3D])
+        for _i, (_colonne, _libelle) in enumerate(_COLONNES_3D, start=1):
+            _boites(_fig2, _colonne, _libelle.split("(")[-1].rstrip(")"), row=1, col=_i, horizontal=True)
+            # Axe limité au 95e percentile (les valeurs extrêmes restent au survol)
+            _p95 = _df.filter(pl.col("famille_generateur").is_in(_gardees))[_colonne].quantile(0.95) or 1
+            _fig2.update_xaxes(title_text=_libelle, range=[0, _p95 * _MARGE_P95], gridcolor="#ececec",
+                               row=1, col=_i)
+        # Familles de haut en bas dans l'ordre de 3c (la 1re en haut)
+        _fig2.update_yaxes(**{**_axe_x, "range": [len(_gardees) - 0.4, -0.6]}, row=1, col=1)
+        _fig2.update_layout(
+            height=max(420, 62 * len(_gardees) + 170), width=None, template="plotly_white",
+            title={"text": "<b>Analyse3d — Effet « puissance » contre effet « donnée » du sous-lot 8.1</b><br>"
+                           "<sup>8.1 (kgCO₂e/m²) = puissance (W/m²) × intensité (kgCO₂e/kW) / 1000 — "
+                           "bâtiments « plateau » et puissance < 1 kW écartés — axes limités au 95e percentile</sup>"},
+            margin={"l": 20, "r": 20, "t": 110, "b": 60},
+        )
+
+        _tableau = _stats.filter(pl.col("n") >= _N_MIN).select(
+            pl.col("famille_generateur").alias("famille"), "n",
+            pl.col("mediane_8_1").round(1).alias("8.1 médian (kg/m²)"),
+            pl.col("mediane_w_m2").round(0).alias("puissance médiane (W/m²)"),
+            pl.col("mediane_kg_kw").round(0).alias("intensité médiane (kg/kW)"),
+            pl.col("n_puissance").alias("n avec puissance"),
+        )
+        _sortie = mo.vstack([
+            mo.ui.plotly(_fig),
+            mo.md("### 3d. Effet « puissance » contre effet « donnée »\n\n"
+                  "*Même ordre des familles qu'en 3c. Une famille décalée à droite dans le panneau de "
+                  "gauche est pénalisée par la puissance installée ; dans le panneau de droite, par la "
+                  "fiche environnementale (kgCO₂e par kW).*"),
+            mo.ui.plotly(_fig2),
+            mo.ui.table(_tableau, selection=None, pagination=False),
+            boutons_export(_tableau, "analyse3cd_8_1_par_famille"),
+        ])
+
+    _note = (f"*Familles écartées (moins de {_N_MIN} bâtiments) : {', '.join(_ecartees)}.*" if _ecartees else "")
+    mo.vstack([
+        mo.md("### 3c. Sous-lot 8.1 par famille de générateur\n\n"
+              "*Famille déduite de `synthese_generateur_ch` (générateur principal ; un appoint effet Joule ne "
+              "compte pas). La base ne distingue pas PAC collective et PAC individuelle : les PAC sont "
+              "découpées par type.*"),
+        _sortie,
+        mo.md(_note),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def extraction_fiches_8_1(USAGE_LOGEMENT_COLLECTIF, bouton_fiches_a3, mo, pl, turso_conn):
+    # ============================================================================
+    # CELLULE — 2e requête réseau (sur demande) : fiches du sous-lot 8.1
+    #
+    # Table composant : une ligne par composant. Agrégation CÔTÉ SQL (la table est
+    # volumineuse) : nombre de fiches par bâtiment, nature de donnée et type de
+    # déclaration, pour lot_ref = 8 et sous_lot_ref = 1, logements collectifs.
+    # Résultat : DATA_fiches_8_1 (une ligne par bâtiment x nature de fiche).
+    # ============================================================================
+    mo.stop(not bouton_fiches_a3.value, mo.vstack([
+        mo.md("### 3e. Nature des fiches du sous-lot 8.1"),
+        bouton_fiches_a3,
+        mo.md("*Requête supplémentaire sur la table composant : cliquer pour charger.*"),
+    ]))
+
+    # ---- Variables -------------------------------------------------------------
+    _LOT, _SOUS_LOT = 8, 1
+    _requete = f"""
+        SELECT
+            c.projet_id || '_' || COALESCE(c.batiment_index, '0') AS "ID",
+            c.type_donnees,
+            c.type_declaration,
+            COUNT(*) AS nb_fiches
+        FROM composant_open_data c
+        JOIN batiment_open_data b
+          ON b.projet_id = c.projet_id
+         AND CAST(COALESCE(b.batiment_index, 0) AS TEXT) = CAST(COALESCE(c.batiment_index, 0) AS TEXT)
+        WHERE c.lot_ref = {_LOT}
+          AND c.sous_lot_ref = {_SOUS_LOT}
+          AND b.usage_principal_txt = '{USAGE_LOGEMENT_COLLECTIF}'
+        GROUP BY 1, 2, 3
+    """
+    _cursor = turso_conn.execute(_requete)
+    _noms = [d[0] for d in _cursor.description]
+    DATA_fiches_8_1 = pl.DataFrame(
+        [dict(zip(_noms, _r)) for _r in _cursor.fetchall()], infer_schema_length=None
+    )
+    print(f"Fiches du sous-lot 8.1 : {DATA_fiches_8_1.height} lignes (bâtiment x nature)")
+    return (DATA_fiches_8_1,)
+
+
+@app.cell(hide_code=True)
+def graphique_3e(
+    CLASSES_2028,
+    DATA_a3_cl,
+    DATA_fiches_8_1,
+    SOUS_TITRE_FILTRES,
+    boutons_export,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse3 : 3e. Nature des fiches du sous-lot 8.1
+    #
+    #   1. Nature de chaque fiche : PEP individuelle, PEP collective, PEP sans
+    #      type de déclaration, PEP extrapolée, DED, fiche configurée,
+    #      conventionnelle, autre
+    #   2. Barres empilées à 100 % : part des fiches 8.1 par nature, par classe
+    #   3. Tableau : selon la nature DOMINANTE des fiches 8.1 du bâtiment, 8.1
+    #      médian et udd médian -> effet « donnée » (PEP au lieu de DED)
+    # La table composant ne donne pas l'impact par fiche : parts en NOMBRE de fiches.
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _NATURES = {   # libellé -> couleur (palette catégorielle validée, dans l'ordre)
+        "PEP individuelle": "#2a78d6",
+        "PEP collective": "#1baf7a",
+        "PEP (déclaration inconnue)": "#4a3aa7",
+        "PEP extrapolée": "#eda100",
+        "DED": "#eb6834",
+        "Fiche configurée": "#e87ba4",
+        "Conventionnelle": "#008300",
+        "Autre": "#9a9a96",
+    }
+    _N_MIN = 5
+
+    # 1. Nature de chaque fiche ------------------------------------------------------------
+    _type = pl.col("type_donnees").cast(pl.Utf8).str.to_uppercase()
+    _decl = pl.col("type_declaration").cast(pl.Utf8).str.to_lowercase()
+    _nature = (
+        pl.when((_type == "PEP") & (_decl == "individuelle")).then(pl.lit("PEP individuelle"))
+        .when((_type == "PEP") & (_decl == "collective")).then(pl.lit("PEP collective"))
+        .when(_type == "PEP").then(pl.lit("PEP (déclaration inconnue)"))
+        .when(_type == "PEP_EXTRAPOLEE").then(pl.lit("PEP extrapolée"))
+        .when(_type == "DED").then(pl.lit("DED"))
+        .when(_type == "FICHE_CONFIGUREE").then(pl.lit("Fiche configurée"))
+        .when(_type == "CONVENTIONNELLE").then(pl.lit("Conventionnelle"))
+        .otherwise(pl.lit("Autre"))
+    )
+    _fiches = (
+        DATA_fiches_8_1.with_columns(_nature.alias("nature"))
+        .group_by("ID", "nature").agg(pl.col("nb_fiches").sum())
+        .join(DATA_a3_cl.select("ID", "classe_2028", "udd", "ic_composant_sous_lot_8_1"), on="ID", how="inner")
+    )
+
+    # 2. Parts par classe --------------------------------------------------------------------
+    _parts = (
+        _fiches.group_by("classe_2028", "nature").agg(pl.col("nb_fiches").sum())
+        .with_columns((100 * pl.col("nb_fiches") / pl.col("nb_fiches").sum().over("classe_2028")).alias("part"))
+    )
+    _n_bat = dict(_fiches.group_by("classe_2028").agg(pl.col("ID").n_unique()).iter_rows())
+    _classes = [c for c in CLASSES_2028 if c in _n_bat]
+    _y = [f"{c} (n={_n_bat[c]})" for c in _classes]
+
+    _fig = go.Figure()
+    for _nat, _coul in _NATURES.items():
+        _p = dict(_parts.filter(pl.col("nature") == _nat).select("classe_2028", "part").iter_rows())
+        if not _p:
+            continue
+        _v = [_p.get(c, 0.0) for c in _classes]
+        _fig.add_trace(go.Bar(
+            y=_y, x=_v, name=_nat, orientation="h",
+            marker={"color": _coul, "line": {"color": "#ffffff", "width": 2}},
+            text=[f"{v:.0f} %" if v >= 6 else "" for v in _v], textposition="inside",
+            insidetextfont={"color": "#ffffff", "size": 12},
+            hovertemplate=f"<b>%{{y}}</b><br>{_nat} : %{{x:.1f}} % des fiches 8.1<extra></extra>",
+        ))
+    _fig.update_layout(
+        barmode="stack", height=max(320, 70 * len(_classes) + 170), width=None, template="plotly_white",
+        title={"text": "<b>Analyse3e — Nature des fiches du sous-lot 8.1 par classe</b><br>"
+                       f"<sup>{SOUS_TITRE_FILTRES}</sup>"},
+        xaxis={"title": "% des fiches du sous-lot 8.1 (en nombre)", "range": [0, 100], "gridcolor": "#ececec"},
+        yaxis={"categoryorder": "array", "categoryarray": list(reversed(_y)), "automargin": True},
+        legend={"orientation": "h", "x": 0, "y": -0.3, "traceorder": "normal"},
+        margin={"l": 20, "r": 20, "t": 90, "b": 120},
+    )
+
+    # 3. Nature dominante du 8.1 de chaque bâtiment --------------------------------------
+    _dominante = (
+        _fiches.sort("nb_fiches", descending=True).group_by("ID", maintain_order=True)
+        .agg(pl.col("nature").first().alias("nature dominante"),
+             pl.col("ic_composant_sous_lot_8_1").first(), pl.col("udd").first())
+    )
+    _tableau = (
+        _dominante.group_by("nature dominante").agg(
+            pl.len().alias("bâtiments"),
+            pl.col("ic_composant_sous_lot_8_1").median().round(1).alias("8.1 médian (kg/m²)"),
+            (pl.col("udd").median() * 100).round(1).alias("udd médian (%)"),
+        ).sort("bâtiments", descending=True)
+        .with_columns(pl.when(pl.col("bâtiments") < _N_MIN).then(pl.lit(f"< {_N_MIN} bâtiments"))
+                      .otherwise(pl.lit("")).alias("remarque"))
+    )
+
+    mo.vstack([
+        mo.md("### 3e. Nature des fiches du sous-lot 8.1\n\n"
+              "*Parts en **nombre** de fiches (la table composant ne donne pas l'impact par fiche).*"),
+        mo.ui.plotly(_fig),
+        mo.md("**Effet « donnée » : 8.1 médian selon la nature dominante des fiches du bâtiment**"),
+        mo.ui.table(_tableau, selection=None, pagination=False),
+        boutons_export(_parts.sort("classe_2028", "nature"), "analyse3e_fiches_8_1_par_classe"),
+        boutons_export(_dominante, "analyse3e_nature_dominante_par_batiment"),
+    ])
+    return
 
 if __name__ == "__main__":
     app.run()
