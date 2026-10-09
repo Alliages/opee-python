@@ -37,11 +37,14 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.54"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "09/10/2026 02:20"
+    VERSION = "0.55"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "09/10/2026 16:45"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Analyse3 réorganisée : 3b = cascade par lot (lots à plus de 5 kg d'écart + autres lots "
+        (VERSION, "Analyse4 : 4a médianes par année (IC composant, Q1–Q3, budget 2028, macro-lots), "
+                  "4b classes de l'Analyse1 par année à 100 % + indice de difficulté, 4c indicateurs de "
+                  "l'Analyse2 par année ; indicateurs de profil et tableaux en dégradé mis en commun"),
+        ("0.54", "Analyse3 réorganisée : 3b = cascade par lot (lots à plus de 5 kg d'écart + autres lots "
                   "regroupés), 3c = lot 8 par sous-lot, 3d = nature des fiches tous lots (FDES, PEP, DED…), "
                   "3e = nature des fiches du 8.1, avec le nombre de fiches ; familles de générateur et "
                   "effet puissance / donnée retirés ; une seule requête composant pour 3d et 3e"),
@@ -215,7 +218,7 @@ def sommaire_analyses(mo):
         5: "Simulateur de leviers",
         6: "Effet propre de chaque levier (régression)",
     }
-    ANALYSES_PRETES = {1, 2, 3} # analyses déjà construites
+    ANALYSES_PRETES = {1, 2, 3, 4}  # analyses déjà construites
 
     _lignes = "\n".join(
         f"- **Analyse{_n}** — {_titre}" + ("" if _n in ANALYSES_PRETES else " *(à venir)*")
@@ -669,11 +672,14 @@ def colonnes_calculees(
     #   parking_infra_par_logement : nb_place_parking_infra / nb_logements_estime
     #   ic_gros_oeuvre, ic_second_oeuvre, ic_lots_techniques : sommes des lots
     #   annee_depot                : plus ancienne année de dépôt du projet
+    #   sref_fiable, udd_pct, part_ded_pct, structure, generateur, ventilation,
+    #   reseau                     : indicateurs de profil (Analyses 2 et 4)
     # Résultat : DATA_brut.
     # ============================================================================
 
     # ---- Variables -------------------------------------------------------------
     _TOL_PLATEAU = 1e-6
+    _NON_RENSEIGNE = "Non renseigné"
     _sref = pl.col("sref")
     _nb_logements = pl.col("nb_logements_estime")
 
@@ -717,6 +723,24 @@ def colonnes_calculees(
 
     # 5. Année de dépôt unique (la plus ancienne du projet) pour l'analyse temporelle
     _df = _df.with_columns(pl.col("annees_depot_pc").list.min().alias("annee_depot"))
+
+    # 6. Indicateurs de profil (Analyses 2 et 4) : sref hors « plateau », udd en %,
+    #    part de DED, et catégories (texte, NULL -> « Non renseigné »)
+    _ventil = pl.col("l_type_ventilation_mecanique").cast(pl.Utf8)
+    _df = _df.with_columns(
+        _sref_fiable.alias("sref_fiable"),
+        (pl.col("udd") * 100).alias("udd_pct"),
+        (pl.col("nb_ded") / pl.col("nb_total_fiche_acv") * 100).alias("part_ded_pct"),
+        pl.col("dc_materiau_structure").fill_null(_NON_RENSEIGNE).alias("structure"),
+        pl.col("famille_synthese_generateur_ch").cast(pl.Utf8).fill_null(_NON_RENSEIGNE).alias("generateur"),
+        pl.when(_ventil.is_null()).then(pl.lit(_NON_RENSEIGNE))
+        .when(_ventil.str.contains("DF|[Dd]ouble")).then(pl.lit("Double flux"))
+        .when(_ventil.str.contains("SF|[Ss]imple")).then(pl.lit("Simple flux"))
+        .otherwise(pl.lit("Autre ventilation")).alias("ventilation"),
+        pl.when(pl.col("presence_reseau").cast(pl.Utf8).str.to_lowercase().is_in(["1", "true", "vrai"]))
+        .then(pl.lit("Raccordé à un réseau"))
+        .otherwise(pl.lit("Non raccordé")).alias("reseau"),
+    )
 
     DATA_brut = _df
     return (DATA_brut,)
@@ -1041,6 +1065,159 @@ def filtres_communs(
         )
 
     return FILTRES, SOUS_TITRE_FILTRES, appliquer_filtres, resume_filtres, valeurs_actives
+
+
+@app.cell(hide_code=True)
+def fonctions_profil(mo, pl):
+    # ============================================================================
+    # CELLULE — Indicateurs de profil et tableaux en dégradé, communs aux
+    # Analyses 2 (par classe) et 4 (par année). SOURCE UNIQUE de la liste des
+    # indicateurs : pour en ajouter un, c'est ICI.
+    #
+    #   INDICATEURS_PROFIL : (famille, colonne, libellé, décimales) -> médianes
+    #   CATEGORIES_PROFIL  : (famille, colonne, nb de modalités gardées) -> parts
+    #   profil_par_colonnes(df, colonnes) : médianes et parts pour chaque colonne
+    #       du tableau, colonnes = [(libellé, expression de sélection), ...]
+    #   tableaux_profil(...) : les deux tableaux mo.ui.table, dégradé par ligne
+    #       (jaune du HUB), cellules grisées sous n_min bâtiments renseignés
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    INDICATEURS_PROFIL = [
+        ("Forme", "taux_vitrage_pct", "Taux de vitrage (% de la sref)", 1),
+        ("Forme", "ratio_facade", "Murs / sref (m²/m²)", 2),
+        ("Forme", "hauteur_hors_toiture", "Hauteur hors toiture (m)", 1),
+        ("Forme", "sref_fiable", "Sref (m², hors « plateau »)", 0),
+        ("Programme", "parking_infra_par_logement", "Places de parking en infra / logement", 2),
+        ("Programme", "nb_ascenseur", "Nombre d'ascenseurs", 1),
+        ("Programme", "nb_logements_estime", "Logements estimés (sref / 70)", 0),
+        ("Constructif", "stock_c", "Stockage carbone (kgC/m²)", 1),
+        ("Lots", "ic_composant_lot_8", "Lot 8 : CVC (kgCO₂e/m²)", 1),
+        ("Lots", "ic_composant_sous_lot_8_1", "dont sous-lot 8.1 : production chaud / froid (kgCO₂e/m²)", 1),
+        ("Lots", "ic_composant_lot_9", "Lot 9 : installations sanitaires (kgCO₂e/m²)", 1),
+        ("Méthode", "udd_pct", "Part d'impact des données par défaut (udd, %)", 1),
+        ("Méthode", "part_ded_pct", "Part de DED en nombre de fiches (%)", 1),
+        ("Méthode", "nb_total_fiche_acv", "Nombre de fiches (total)", 0),
+        ("Méthode", "nb_fdes", "Nombre de FDES", 0),
+        ("Méthode", "nb_pep", "Nombre de PEP", 0),
+    ]
+    CATEGORIES_PROFIL = [
+        ("Structure (dc_, à lire avec prudence)", "structure", 5),
+        ("Générateur de chauffage", "generateur", 5),
+        ("Ventilation", "ventilation", 3),
+        ("Réseau de chaleur", "reseau", 2),
+    ]
+    _LIBELLE_AUTRES = "Autres"
+    _LIBELLE_NON_RENSEIGNE = "Non renseigné"
+    _TEINTE_RVB = (253, 185, 19)       # jaune du HUB
+    _OPACITE_MIN, _OPACITE_MAX = 0.06, 0.75
+    _COULEUR_TEXTE = "#222222"
+    _COULEUR_GRISE = "#b5b4b0"
+
+
+    def profil_par_colonnes(df, colonnes):
+        """Renvoie (profil, composition, effectifs) :
+        - profil      : une ligne par indicateur, médiane + « n <col> » par colonne
+        - composition : une ligne par modalité, % des bâtiments + « n <col> »
+        - effectifs   : {libellé de colonne: nombre de bâtiments}"""
+        _sous_df = {_lib: df.filter(_expr) for _lib, _expr in colonnes}
+        _libelles = list(_sous_df)
+
+        # Médianes
+        _lignes = []
+        for _famille, _col, _libelle, _dec in INDICATEURS_PROFIL:
+            _ligne = {"famille": _famille, "indicateur": _libelle, "colonne": _col, "décimales": _dec}
+            for _lib, _d in _sous_df.items():
+                _serie = _d[_col].cast(pl.Float64).drop_nulls()
+                _ligne[_lib] = _serie.median() if _serie.len() else None
+                _ligne[f"n {_lib}"] = _serie.len()
+            _lignes.append(_ligne)
+        # Cast explicite : une colonne vide (aucun bâtiment) serait sinon de type Null
+        _profil = pl.DataFrame(_lignes).with_columns([pl.col(_l).cast(pl.Float64) for _l in _libelles])
+
+        # Parts des catégories (modalités les plus fréquentes, les autres -> « Autres »)
+        _lignes = []
+        for _famille, _col, _nb_gardees in CATEGORIES_PROFIL:
+            _gardees = (
+                df.filter(pl.col(_col) != _LIBELLE_NON_RENSEIGNE)
+                .group_by(_col).len().sort("len", descending=True)[_col].head(_nb_gardees).to_list()
+            )
+            _cat = (
+                pl.when(pl.col(_col).is_in(_gardees + [_LIBELLE_NON_RENSEIGNE])).then(pl.col(_col))
+                .otherwise(pl.lit(_LIBELLE_AUTRES))
+            )
+            for _modalite in _gardees + [_LIBELLE_AUTRES, _LIBELLE_NON_RENSEIGNE]:
+                _ligne = {"famille": _famille, "modalité": _modalite}
+                _presente = False
+                for _lib, _d in _sous_df.items():
+                    _n = _d.filter(_cat == _modalite).height
+                    _ligne[_lib] = 100 * _n / _d.height if _d.height else None
+                    _ligne[f"n {_lib}"] = _d.height
+                    _presente = _presente or _n > 0
+                if _presente:
+                    _lignes.append(_ligne)
+        _composition = (
+            pl.DataFrame(_lignes).with_columns([pl.col(_l).cast(pl.Float64) for _l in _libelles])
+            if _lignes else pl.DataFrame()
+        )
+        return _profil, _composition, {_lib: _d.height for _lib, _d in _sous_df.items()}
+
+
+    def _style_degrade(df, effectifs, colonnes, n_min):
+        """style_cell pour mo.ui.table : dégradé par ligne sur `colonnes`, en
+        ignorant (et grisant) les cellules calculées sur moins de n_min bâtiments."""
+        _styles = {}
+        for _i, (_valeurs, _n) in enumerate(zip(df.select(colonnes).iter_rows(), effectifs.iter_rows())):
+            _fiables = [v for v, n in zip(_valeurs, _n) if v is not None and n >= n_min]
+            _bas, _haut = (min(_fiables), max(_fiables)) if _fiables else (0, 0)
+            for _col, _v, _nb in zip(colonnes, _valeurs, _n):
+                if _v is None:
+                    continue
+                if _nb < n_min:
+                    _styles[(str(_i), _col)] = {"color": _COULEUR_GRISE}
+                    continue
+                _t = (_v - _bas) / (_haut - _bas) if _haut > _bas else 0.0
+                _a = _OPACITE_MIN + _t * (_OPACITE_MAX - _OPACITE_MIN)
+                _styles[(str(_i), _col)] = {
+                    "backgroundColor": f"rgba({_TEINTE_RVB[0]},{_TEINTE_RVB[1]},{_TEINTE_RVB[2]},{_a:.2f})",
+                    "color": _COULEUR_TEXTE,
+                }
+
+        def _style(ligne, colonne, valeur):
+            return _styles.get((str(ligne), colonne), {})
+        return _style
+
+
+    def tableaux_profil(profil, composition, effectifs, n_min, colonnes_en_plus=()):
+        """Renvoie les deux tableaux (médianes, parts) prêts à afficher.
+        colonnes_en_plus : colonnes de `profil` à afficher après les colonnes
+        (ex. une évolution), hors dégradé."""
+        _libelles = list(effectifs)
+        _entetes = {_lib: f"{_lib} (n={effectifs[_lib]})" for _lib in _libelles}
+        _cols = list(_entetes.values())
+
+        _p = profil.with_columns([
+            pl.struct(_lib, "décimales").map_elements(
+                lambda s, _lib=_lib: None if s[_lib] is None else round(s[_lib], s["décimales"]),
+                return_dtype=pl.Float64,
+            ).alias(_lib)
+            for _lib in _libelles
+        ]).select("famille", "indicateur", *_libelles, *colonnes_en_plus).rename(_entetes)
+        _table_profil = mo.ui.table(
+            _p, selection=None, pagination=False, show_download=False,
+            style_cell=_style_degrade(_p, profil.select([f"n {_l}" for _l in _libelles]), _cols, n_min),
+        )
+        if composition.height == 0:
+            return _table_profil, mo.md("*Aucune catégorie renseignée.*")
+        _c = composition.with_columns([pl.col(_l).round(0) for _l in _libelles]).select(
+            "famille", "modalité", *_libelles).rename(_entetes)
+        _table_compo = mo.ui.table(
+            _c, selection=None, pagination=False, show_download=False,
+            style_cell=_style_degrade(_c, composition.select([f"n {_l}" for _l in _libelles]), _cols, n_min),
+        )
+        return _table_profil, _table_compo
+
+    return CATEGORIES_PROFIL, INDICATEURS_PROFIL, profil_par_colonnes, tableaux_profil
 
 
 @app.cell(hide_code=True)
@@ -1440,6 +1617,7 @@ def calcul_analyse2(
     CLASSES_2028,
     COULEURS_CLASSES,
     DATA_a2,
+    INDICATEURS_PROFIL,
     MODE_COMPARER_A2,
     MODE_TOUTES_A2,
     PERIODES_A2,
@@ -1447,17 +1625,18 @@ def calcul_analyse2(
     groupe_b_a2,
     periode_a2,
     pl,
+    profil_par_colonnes,
 ):
     # ============================================================================
     # CELLULE — Analyse2 : calculs (aucun affichage)
     #
-    #   1. Colonnes dérivées (sref hors plateau, udd en %, part de DED, catégories)
-    #      et période de chaque bâtiment
+    #   1. Période de chaque bâtiment (indicateurs de profil : cf. socle)
     #   2. Colonnes des tableaux, selon la période choisie :
     #        - « Toutes » ou une période : une colonne par classe
     #        - « Comparer »              : A et B × deux périodes (4 colonnes)
     #   3. PROFIL_A2      : médiane de chaque indicateur numérique par colonne
     #      COMPOSITION_A2 : part des bâtiments par catégorie, par colonne
+    #      (fonction commune profil_par_colonnes, cf. fonctions_profil)
     #   4. TORNADE_A2     : écart de médiane B − A, rapporté à l'écart
     #      interquartile (IQR) de l'ensemble, pour chaque période comparée
     #
@@ -1473,59 +1652,11 @@ def calcul_analyse2(
     _CLASSES_A, _CLASSES_B = groupe_a_a2.value, groupe_b_a2.value
     NOM_A_A2, NOM_B_A2 = groupe_a_a2.selected_key, groupe_b_a2.selected_key
 
-    # (famille, colonne, libellé, nombre de décimales)
-    INDICATEURS_A2 = [
-        ("Forme", "taux_vitrage_pct", "Taux de vitrage (% de la sref)", 1),
-        ("Forme", "ratio_facade", "Murs / sref (m²/m²)", 2),
-        ("Forme", "hauteur_hors_toiture", "Hauteur hors toiture (m)", 1),
-        ("Forme", "sref_fiable", "Sref (m², hors « plateau »)", 0),
-        ("Programme", "parking_infra_par_logement", "Places de parking en infra / logement", 2),
-        ("Programme", "nb_ascenseur", "Nombre d'ascenseurs", 1),
-        ("Programme", "nb_logements_estime", "Logements estimés (sref / 70)", 0),
-        ("Constructif", "stock_c", "Stockage carbone (kgC/m²)", 1),
-        ("Lots", "ic_composant_lot_8", "Lot 8 : CVC (kgCO₂e/m²)", 1),
-        ("Lots", "ic_composant_sous_lot_8_1", "dont sous-lot 8.1 : production chaud / froid (kgCO₂e/m²)", 1),
-        ("Lots", "ic_composant_lot_9", "Lot 9 : installations sanitaires (kgCO₂e/m²)", 1),
-        ("Méthode", "udd_pct", "Part d'impact des données par défaut (udd, %)", 1),
-        ("Méthode", "part_ded_pct", "Part de DED en nombre de fiches (%)", 1),
-        ("Méthode", "nb_total_fiche_acv", "Nombre de fiches (total)", 0),
-        ("Méthode", "nb_fdes", "Nombre de FDES", 0),
-        ("Méthode", "nb_pep", "Nombre de PEP", 0),
-    ]
-    # Catégories : (famille, colonne, nombre de modalités gardées, les autres -> « Autres »)
-    _CATEGORIES = [
-        ("Structure (dc_, à lire avec prudence)", "structure", 5),
-        ("Générateur de chauffage", "generateur", 5),
-        ("Ventilation", "ventilation", 3),
-        ("Réseau de chaleur", "reseau", 2),
-    ]
-    _LIBELLE_AUTRES = "Autres"
-    _LIBELLE_NON_RENSEIGNE = "Non renseigné"
-
-    # 1. Colonnes dérivées et période ---------------------------------------------
-    _ventil = pl.col("l_type_ventilation_mecanique").cast(pl.Utf8)
+    # 1. Période de chaque bâtiment (colonnes de profil : cf. colonnes_calculees)
     _periode = pl.lit(None, dtype=pl.Utf8)
     for _nom, _annees in reversed(list(PERIODES_A2.items())):
         _periode = pl.when(pl.col("annee_depot").is_in(_annees)).then(pl.lit(_nom)).otherwise(_periode)
-    DATA_a2_profil = (
-        DATA_a2.filter(pl.col("classe_2028").is_in(CLASSES_2028))
-        .with_columns(
-            _periode.alias("periode"),
-            pl.when(pl.col("sref_plateau")).then(None).otherwise(pl.col("sref")).alias("sref_fiable"),
-            (pl.col("udd") * 100).alias("udd_pct"),
-            (pl.col("nb_ded") / pl.col("nb_total_fiche_acv") * 100).alias("part_ded_pct"),
-            # Catégories (texte), NULL -> « Non renseigné »
-            pl.col("dc_materiau_structure").fill_null(_LIBELLE_NON_RENSEIGNE).alias("structure"),
-            pl.col("famille_synthese_generateur_ch").cast(pl.Utf8).fill_null(_LIBELLE_NON_RENSEIGNE).alias("generateur"),
-            pl.when(_ventil.is_null()).then(pl.lit(_LIBELLE_NON_RENSEIGNE))
-            .when(_ventil.str.contains("DF|[Dd]ouble")).then(pl.lit("Double flux"))
-            .when(_ventil.str.contains("SF|[Ss]imple")).then(pl.lit("Simple flux"))
-            .otherwise(pl.lit("Autre ventilation")).alias("ventilation"),
-            pl.when(pl.col("presence_reseau").cast(pl.Utf8).str.to_lowercase().is_in(["1", "true", "vrai"]))
-            .then(pl.lit("Raccordé à un réseau"))
-            .otherwise(pl.lit("Non raccordé")).alias("reseau"),
-        )
-    )
+    DATA_a2_profil = DATA_a2.filter(pl.col("classe_2028").is_in(CLASSES_2028)).with_columns(_periode.alias("periode"))
     _df = DATA_a2_profil
     if _MODE not in (MODE_TOUTES_A2, MODE_COMPARER_A2):
         _df = _df.filter(pl.col("periode") == _MODE)
@@ -1543,44 +1674,11 @@ def calcul_analyse2(
         ]
     else:
         COLONNES_A2 = [(_c, _classe == _c, COULEURS_CLASSES[_c]) for _c in CLASSES_2028]
-    _sous_df = {_lib: _df.filter(_expr) for _lib, _expr, _ in COLONNES_A2}
-    NB_PAR_COLONNE_A2 = {_lib: _d.height for _lib, _d in _sous_df.items()}
 
-    # 3a. Médianes ------------------------------------------------------------------
-    _lignes = []
-    for _famille, _col, _libelle, _dec in INDICATEURS_A2:
-        _ligne = {"famille": _famille, "indicateur": _libelle, "colonne": _col, "décimales": _dec}
-        for _lib, _d in _sous_df.items():
-            _serie = _d[_col].cast(pl.Float64).drop_nulls()
-            _ligne[_lib] = _serie.median() if _serie.len() else None
-            _ligne[f"n {_lib}"] = _serie.len()
-        _lignes.append(_ligne)
-    # Cast explicite : une colonne vide (aucun bâtiment) serait sinon de type Null
-    _LIBELLES = [_lib for _lib, _, _ in COLONNES_A2]
-    PROFIL_A2 = pl.DataFrame(_lignes).with_columns([pl.col(_lib).cast(pl.Float64) for _lib in _LIBELLES])
-
-    # 3b. Parts des catégories (% des bâtiments de la colonne) -----------------------
-    _lignes = []
-    for _famille, _col, _nb_gardees in _CATEGORIES:
-        _gardees = (
-            _df.filter(pl.col(_col) != _LIBELLE_NON_RENSEIGNE)
-            .group_by(_col).len().sort("len", descending=True)[_col].head(_nb_gardees).to_list()
-        )
-        _cat = (
-            pl.when(pl.col(_col).is_in(_gardees + [_LIBELLE_NON_RENSEIGNE])).then(pl.col(_col))
-            .otherwise(pl.lit(_LIBELLE_AUTRES))
-        )
-        for _modalite in _gardees + [_LIBELLE_AUTRES, _LIBELLE_NON_RENSEIGNE]:
-            _ligne = {"famille": _famille, "modalité": _modalite}
-            _presente = False
-            for _lib, _d in _sous_df.items():
-                _n = _d.filter(_cat == _modalite).height
-                _ligne[_lib] = 100 * _n / _d.height if _d.height else None
-                _ligne[f"n {_lib}"] = _d.height
-                _presente = _presente or _n > 0
-            if _presente:
-                _lignes.append(_ligne)
-    COMPOSITION_A2 = pl.DataFrame(_lignes).with_columns([pl.col(_lib).cast(pl.Float64) for _lib in _LIBELLES])
+    # 3. Médianes et parts des catégories (fonction commune, cf. fonctions_profil)
+    PROFIL_A2, COMPOSITION_A2, NB_PAR_COLONNE_A2 = profil_par_colonnes(
+        _df, [(_lib, _expr) for _lib, _expr, _ in COLONNES_A2]
+    )
 
     # 4. Tornade : une comparaison A vs B par période (une seule hors « Comparer »)
     _periodes_tornade = list(PERIODES_A2) if COMPARER_A2 else [_MODE]
@@ -1588,7 +1686,7 @@ def calcul_analyse2(
     for _p in _periodes_tornade:
         _dp = _df.filter(pl.col("periode") == _p) if _p in PERIODES_A2 else _df
         _df_a, _df_b = _dp.filter(_classe.is_in(_CLASSES_A)), _dp.filter(_classe.is_in(_CLASSES_B))
-        for _famille, _col, _libelle, _dec in INDICATEURS_A2:
+        for _famille, _col, _libelle, _dec in INDICATEURS_PROFIL:
             _a = _df_a[_col].cast(pl.Float64).drop_nulls()
             _b = _df_b[_col].cast(pl.Float64).drop_nulls()
             _tout = _dp[_col].cast(pl.Float64).drop_nulls()
@@ -1623,7 +1721,6 @@ def calcul_analyse2(
 
 @app.cell(hide_code=True)
 def tableaux_analyse2(
-    COLONNES_A2,
     COMPARER_A2,
     COMPOSITION_A2,
     NB_PAR_COLONNE_A2,
@@ -1633,70 +1730,18 @@ def tableaux_analyse2(
     PROFIL_A2,
     boutons_export,
     mo,
-    pl,
+    tableaux_profil,
 ):
     # ============================================================================
     # CELLULE — Analyse2 : 2a (médianes) et 2b (répartition des catégories), en
-    # tableaux à dégradé de couleur.
+    # tableaux à dégradé de couleur (fonction commune tableaux_profil).
     #
     # Dégradé calculé LIGNE PAR LIGNE : la cellule la plus foncée est la colonne
     # où l'indicateur est le plus élevé. Une seule teinte (jaune du HUB) ; la
     # valeur est toujours écrite, la couleur n'est qu'un repère.
     # Cellule grisée = médiane calculée sur moins de N_MIN_A2 bâtiments.
     # ============================================================================
-
-    # ---- Variables -------------------------------------------------------------
-    _TEINTE_RVB = (253, 185, 19)       # jaune du HUB
-    _OPACITE_MIN, _OPACITE_MAX = 0.06, 0.75
-    _COULEUR_TEXTE = "#222222"
-    _COULEUR_GRISE = "#b5b4b0"
-    _LIBELLES = [_lib for _lib, _, _ in COLONNES_A2]
-
-
-    def _style_degrade(df, effectifs, colonnes):
-        """style_cell pour mo.ui.table : dégradé par ligne sur `colonnes`, en
-        ignorant (et grisant) les cellules calculées sur trop peu de bâtiments."""
-        _styles = {}
-        for _i, (_valeurs, _n) in enumerate(zip(df.select(colonnes).iter_rows(), effectifs.iter_rows())):
-            _fiables = [v for v, n in zip(_valeurs, _n) if v is not None and n >= N_MIN_A2]
-            _bas, _haut = (min(_fiables), max(_fiables)) if _fiables else (0, 0)
-            for _col, _v, _nb in zip(colonnes, _valeurs, _n):
-                if _v is None:
-                    continue
-                if _nb < N_MIN_A2:
-                    _styles[(str(_i), _col)] = {"color": _COULEUR_GRISE}
-                    continue
-                _t = (_v - _bas) / (_haut - _bas) if _haut > _bas else 0.0
-                _a = _OPACITE_MIN + _t * (_OPACITE_MAX - _OPACITE_MIN)
-                _styles[(str(_i), _col)] = {
-                    "backgroundColor": f"rgba({_TEINTE_RVB[0]},{_TEINTE_RVB[1]},{_TEINTE_RVB[2]},{_a:.2f})",
-                    "color": _COULEUR_TEXTE,
-                }
-
-        def _style(ligne, colonne, valeur):
-            return _styles.get((str(ligne), colonne), {})
-        return _style
-
-
-    # En-têtes : libellé de colonne + nombre de bâtiments (change avec les filtres)
-    _entetes = {_lib: f"{_lib} (n={NB_PAR_COLONNE_A2[_lib]})" for _lib in _LIBELLES}
-    _cols = list(_entetes.values())
-    _effectifs_profil = PROFIL_A2.select([f"n {_lib}" for _lib in _LIBELLES])
-    _effectifs_compo = COMPOSITION_A2.select([f"n {_lib}" for _lib in _LIBELLES])
-
-    # 2a. Médianes, arrondies selon l'indicateur
-    _profil = PROFIL_A2.with_columns([
-        pl.struct(_lib, "décimales").map_elements(
-            lambda s, _lib=_lib: None if s[_lib] is None else round(s[_lib], s["décimales"]),
-            return_dtype=pl.Float64,
-        ).alias(_lib)
-        for _lib in _LIBELLES
-    ]).select("famille", "indicateur", *_LIBELLES).rename(_entetes)
-
-    # 2b. Parts des catégories (%)
-    _compo = COMPOSITION_A2.with_columns(
-        [pl.col(_lib).round(0) for _lib in _LIBELLES]
-    ).select("famille", "modalité", *_LIBELLES).rename(_entetes)
+    _table_profil, _table_compo = tableaux_profil(PROFIL_A2, COMPOSITION_A2, NB_PAR_COLONNE_A2, N_MIN_A2)
 
     _legende = (
         f"*Mode « Comparer » : **A** = {NOM_A_A2}, **B** = {NOM_B_A2}, pour chaque période.*  \n"
@@ -1706,12 +1751,10 @@ def tableaux_analyse2(
     mo.vstack([
         mo.md("### 2a. Médiane des indicateurs" + (" (A et B par période)" if COMPARER_A2 else " par classe")),
         mo.md(_legende),
-        mo.ui.table(_profil, selection=None, pagination=False, show_download=False,
-                    style_cell=_style_degrade(_profil, _effectifs_profil, _cols)),
+        _table_profil,
         boutons_export(PROFIL_A2, "analyse2a_medianes"),
         mo.md("### 2b. Choix constructifs et techniques (% des bâtiments de la colonne)"),
-        mo.ui.table(_compo, selection=None, pagination=False, show_download=False,
-                    style_cell=_style_degrade(_compo, _effectifs_compo, _cols)),
+        _table_compo,
         boutons_export(COMPOSITION_A2, "analyse2b_categories"),
     ])
     return
@@ -2437,6 +2480,299 @@ def graphique_3e(DATA_fiches, barres_fiches, boutons_export, mo, pl):
     ])
     return
 
+
+# ================================================================================
+# ANALYSE4 — Évolution par année de dépôt
+# ================================================================================
+
+
+@app.cell(hide_code=True)
+def widgets_analyse4(mo):
+    # ============================================================================
+    # CELLULE — Analyse4 : widget propre à l'analyse (4b : unité comptée)
+    # ============================================================================
+    compter_par_batiment_a4 = mo.ui.switch(label="4b : compter par bâtiment (sinon par projet)", value=False)
+    return (compter_par_batiment_a4,)
+
+
+@app.cell(hide_code=True)
+def param_analyse4(ANALYSES, compter_par_batiment_a4, mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE — Analyse4 : titre, lecture et panneau de filtres
+    # ============================================================================
+    mo.vstack([
+        mo.md(
+            f"## Analyse4 — {ANALYSES[4]}\n\n"
+            "Année = plus ancienne année de dépôt de PC du projet. Rappel : le seuil réglementaire "
+            "change au 1er janvier 2025 (les dépôts 2022 à 2024 relèvent du seuil 2022).  \n"
+            "**4a.** Médiane de l'IC composant et de chaque macro-lot par année, avec le budget composant 2028.  \n"
+            "**4b.** Répartition des projets dans les classes de l'Analyse1 par année, et indice de difficulté.  \n"
+            "**4c.** Évolution des indicateurs de l'Analyse2 par année, toutes classes confondues."
+        ),
+        panneau_filtres(bascules_analyse=(compter_par_batiment_a4,)),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_analyse4(DATA_base, appliquer_filtres, resume_filtres):
+    # Résumé SOUS les filtres (cellule séparée : elle lit les valeurs des widgets).
+    DATA_a4 = appliquer_filtres(DATA_base, verbeux=False)
+    resume_filtres(DATA_a4)
+    return (DATA_a4,)
+
+
+@app.cell(hide_code=True)
+def graphique_4a(COLS_MACRO_LOTS, DATA_a4, SOUS_TITRE_FILTRES, boutons_export, go, mo, pl):
+    # ============================================================================
+    # CELLULE — Analyse4 : 4a. Médianes par année (comptage par bâtiment)
+    #
+    # Une ligne par grandeur : IC composant (trait épais, bande Q1–Q3), budget
+    # composant 2028 (pointillés noirs), et chaque macro-lot (couleurs de 3a).
+    # Les médianes ne s'additionnent pas : les macro-lots sont tracés côte à côte,
+    # pas empilés (pour une décomposition additive, voir les moyennes de 3a).
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _COULEURS_MACRO = dict(zip(COLS_MACRO_LOTS, ["#2a78d6", "#eb6834", "#1baf7a"]))   # mêmes que 3a
+    _COULEUR_IC = "#0b0b0b"
+    _COULEUR_BANDE = "rgba(11,11,11,0.08)"
+    _COULEUR_TEXTE = "#333333"
+    _COLS = ["ic_composant", "budget_composant_2028", *COLS_MACRO_LOTS.values()]
+
+    _df = DATA_a4.filter(pl.col("annee_depot").is_not_null())
+    TABLEAU_4A = (
+        _df.group_by("annee_depot").agg(
+            pl.len().alias("bâtiments"),
+            *[pl.col(c).median().alias(c) for c in _COLS],
+            pl.col("ic_composant").quantile(0.25).alias("ic_composant_q1"),
+            pl.col("ic_composant").quantile(0.75).alias("ic_composant_q3"),
+        ).sort("annee_depot")
+    )
+
+    if TABLEAU_4A.height == 0:
+        _sortie = mo.callout(mo.md("Aucun bâtiment avec une année de dépôt."), kind="warn")
+    else:
+        _annees = TABLEAU_4A["annee_depot"].to_list()
+        _x = [f"{a}<br><sub>n={n}</sub>" for a, n in zip(_annees, TABLEAU_4A["bâtiments"])]
+        _fig = go.Figure()
+        # Bande Q1–Q3 de l'IC composant
+        _fig.add_trace(go.Scatter(
+            x=_x + _x[::-1],
+            y=TABLEAU_4A["ic_composant_q3"].to_list() + TABLEAU_4A["ic_composant_q1"].to_list()[::-1],
+            mode="lines", fill="toself", fillcolor=_COULEUR_BANDE, line={"width": 0}, hoverinfo="skip",
+            name="IC composant : Q1–Q3",
+        ))
+        # (libellé, colonne, style du trait, valeurs écrites ?) : macro-lots sans
+        # étiquette (courbes proches, chiffres au survol)
+        _series = [
+            ("IC composant (médiane)", "ic_composant", {"color": _COULEUR_IC, "width": 3}, True),
+            ("Budget composant 2028 (médiane)", "budget_composant_2028",
+             {"color": _COULEUR_IC, "width": 2, "dash": "dash"}, True),
+            *[(f"{_nom} (médiane)", _col, {"color": _COULEURS_MACRO[_nom], "width": 2}, False)
+              for _nom, _col in COLS_MACRO_LOTS.items()],
+        ]
+        for _nom, _col, _ligne, _ecrit in _series:
+            _y = TABLEAU_4A[_col].to_list()
+            _fig.add_trace(go.Scatter(
+                x=_x, y=_y, mode="lines+markers+text" if _ecrit else "lines+markers", name=_nom, line=_ligne,
+                marker={"size": 8, "color": _ligne["color"], "line": {"color": "#ffffff", "width": 2}},
+                text=[f"{v:.0f}" if v is not None else "" for v in _y], textposition="top center",
+                textfont={"color": _COULEUR_TEXTE, "size": 11},
+                hovertemplate=f"<b>%{{x}}</b><br>{_nom} : %{{y:.0f}} kgCO₂e/m²<extra></extra>",
+            ))
+        _fig.update_layout(
+            height=560, width=None, template="plotly_white",
+            title={"text": "<b>Analyse4a — Médiane de l'IC composant et des macro-lots par année de dépôt</b><br>"
+                           f"<sup>{SOUS_TITRE_FILTRES}</sup>"},
+            xaxis={"title": "Année de dépôt du PC (n = bâtiments)"},
+            yaxis={"title": "kgCO₂e/m² (médiane)", "rangemode": "tozero", "gridcolor": "#ececec"},
+            legend={"orientation": "h", "x": 0, "y": -0.22},
+            margin={"l": 60, "r": 20, "t": 90, "b": 130},
+            hovermode="x unified",
+        )
+        _sortie = mo.ui.plotly(_fig)
+
+    mo.vstack([
+        mo.md("### 4a. IC composant et macro-lots par année\n\n"
+              "*Médianes par bâtiment. Les médianes ne s'additionnent pas : les macro-lots sont tracés "
+              "séparément (décomposition additive en moyennes : voir 3a).*"),
+        _sortie,
+        boutons_export(TABLEAU_4A, "analyse4a_medianes_par_annee"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_4b(
+    CLASSES_2028,
+    CLASSES_DIFFICILES,
+    CLASSE_INCONNUE,
+    COULEURS_CLASSES,
+    DATA_a4,
+    SEUIL_DIFFICULTE,
+    SOUS_TITRE_FILTRES,
+    boutons_export,
+    compter_par_batiment_a4,
+    expr_classe_2028,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse4 : 4b. Classes de l'Analyse1 par année + indice de difficulté
+    #
+    #   - Unité : projet (classé sur son bâtiment le plus éloigné du budget, comme
+    #     l'Analyse1) ou bâtiment (bascule « 4b : compter par bâtiment »).
+    #   - Barres empilées à 100 %, classes « difficiles » EN BAS (> 130, puis
+    #     80 à 130, puis 30 à 80) : le haut du segment « 30 à 80 » est exactement
+    #     l'indice de difficulté, que la courbe noire suit.
+    #   - Parts calculées sur les unités classables (« Inconnu » compté à part).
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _PAR_BATIMENT = compter_par_batiment_a4.value
+    _UNITE = "bâtiments" if _PAR_BATIMENT else "projets"
+    _COULEUR_INDICE = "#0b0b0b"
+    _SEUIL_ETIQUETTE = 6               # % : pas d'étiquette dans les segments plus fins
+    _ORDRE_EMPILEMENT = list(reversed(CLASSES_2028))   # > 130 kg en bas, Conforme en haut
+
+    # 1. Unité comptée ------------------------------------------------------------
+    _df = DATA_a4.filter(pl.col("annee_depot").is_not_null())
+    if _PAR_BATIMENT:
+        _unites = _df.select("annee_depot", "classe_2028")
+    else:
+        _unites = (
+            _df.group_by("projet_id")
+            .agg(pl.col("annee_depot").first(), pl.col("ecart_2028").max())
+            .with_columns(expr_classe_2028().alias("classe_2028"))
+        )
+
+    # 2. Comptes et parts par année -------------------------------------------------
+    _classables = _unites.filter(pl.col("classe_2028") != CLASSE_INCONNUE)
+    TABLEAU_4B = (
+        _classables.group_by("annee_depot", "classe_2028").len()
+        .with_columns((100 * pl.col("len") / pl.col("len").sum().over("annee_depot")).alias("part"))
+        .rename({"len": _UNITE})
+        .sort("annee_depot", "classe_2028")
+    )
+    _annees = sorted(_unites["annee_depot"].unique().to_list())
+    _n = dict(_classables.group_by("annee_depot").len().iter_rows())
+    _inconnus = dict(_unites.filter(pl.col("classe_2028") == CLASSE_INCONNUE).group_by("annee_depot").len().iter_rows())
+    _indice = dict(
+        TABLEAU_4B.filter(pl.col("classe_2028").is_in(CLASSES_DIFFICILES))
+        .group_by("annee_depot").agg(pl.col("part").sum()).iter_rows()
+    )
+
+    if not _n:
+        _sortie = mo.callout(mo.md("Aucun projet classable avec une année de dépôt."), kind="warn")
+    else:
+        _annees = [a for a in _annees if a in _n]
+        _x = [f"{a}<br><sub>n={_n[a]}" + (f" (+{_inconnus[a]} inconnus)" if _inconnus.get(a) else "") + "</sub>"
+              for a in _annees]
+        _fig = go.Figure()
+        for _c in _ORDRE_EMPILEMENT:
+            _p = dict(TABLEAU_4B.filter(pl.col("classe_2028") == _c).select("annee_depot", "part").iter_rows())
+            _v = [_p.get(a, 0.0) for a in _annees]
+            _fig.add_trace(go.Bar(
+                x=_x, y=_v, name=_c,
+                marker={"color": COULEURS_CLASSES[_c], "line": {"color": "#ffffff", "width": 2}},
+                text=[f"{v:.0f} %" if v >= _SEUIL_ETIQUETTE else "" for v in _v], textposition="inside",
+                insidetextfont={"color": "#ffffff", "size": 12},
+                hovertemplate=f"<b>%{{x}}</b><br>{_c} : %{{y:.1f}} % des {_UNITE}<extra></extra>",
+            ))
+        _v_indice = [_indice.get(a, 0.0) for a in _annees]
+        # Valeur de l'indice dans une étiquette sur fond blanc (lisible sur les barres)
+        for _xi, _v in zip(_x, _v_indice):
+            _fig.add_annotation(x=_xi, y=_v, yshift=18, showarrow=False, text=f"<b>{_v:.0f} %</b>",
+                                font={"color": _COULEUR_INDICE, "size": 13},
+                                bgcolor="#ffffff", bordercolor=_COULEUR_INDICE, borderwidth=1, borderpad=3)
+        _fig.add_trace(go.Scatter(
+            x=_x, y=_v_indice, mode="lines+markers", name="Indice de difficulté",
+            line={"color": _COULEUR_INDICE, "width": 3},
+            marker={"size": 10, "color": _COULEUR_INDICE, "line": {"color": "#ffffff", "width": 2}},
+            hovertemplate=(f"<b>%{{x}}</b><br>Indice de difficulté : %{{y:.1f}} % des {_UNITE} "
+                           f"à plus de {SEUIL_DIFFICULTE} kg<extra></extra>"),
+        ))
+        _fig.update_layout(
+            barmode="stack", height=560, width=None, template="plotly_white", bargap=0.3,
+            title={"text": f"<b>Analyse4b — Classes de l'Analyse1 par année de dépôt — par {_UNITE[:-1]}</b><br>"
+                           f"<sup>{SOUS_TITRE_FILTRES}</sup>"},
+            xaxis={"title": f"Année de dépôt du PC (n = {_UNITE} classés)"},
+            yaxis={"title": f"% des {_UNITE} classés", "range": [0, 112], "tickvals": [0, 20, 40, 60, 80, 100],
+                   "gridcolor": "#ececec"},
+            legend={"orientation": "h", "x": 0, "y": -0.22, "traceorder": "reversed"},
+            margin={"l": 60, "r": 20, "t": 90, "b": 130},
+        )
+        _sortie = mo.ui.plotly(_fig)
+
+    mo.vstack([
+        mo.md(f"### 4b. Classes de l'Analyse1 par année\n\n"
+              f"*Classes « difficiles » en bas : la courbe noire (indice de difficulté = part des {_UNITE} "
+              f"à plus de {SEUIL_DIFFICULTE} kg du budget) suit le haut du segment « 30 à 80 kg ».*"),
+        _sortie,
+        boutons_export(TABLEAU_4B, f"analyse4b_classes_par_annee_{_UNITE}"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def tableaux_4c(
+    CLASSES_2028,
+    DATA_a4,
+    boutons_export,
+    mo,
+    pl,
+    profil_par_colonnes,
+    tableaux_profil,
+):
+    # ============================================================================
+    # CELLULE — Analyse4 : 4c. Indicateurs de l'Analyse2 par année, toutes classes
+    # confondues (bâtiments classés, hors « Inconnu »).
+    #
+    # Mêmes indicateurs et même présentation que 2a / 2b (fonctions communes) :
+    # une colonne par année, dégradé ligne par ligne, cellules grisées sous
+    # _N_MIN bâtiments. Colonne « évolution » : dernière année − première année.
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _N_MIN = 5
+
+    _df = DATA_a4.filter(pl.col("classe_2028").is_in(CLASSES_2028) & pl.col("annee_depot").is_not_null())
+    _annees = sorted(_df["annee_depot"].unique().to_list())
+
+    if not _annees:
+        _sortie = [mo.callout(mo.md("Aucun bâtiment classé avec une année de dépôt."), kind="warn")]
+    else:
+        _colonnes = [(str(a), pl.col("annee_depot") == a) for a in _annees]
+        _profil, _compo, _effectifs = profil_par_colonnes(_df, _colonnes)
+        _premiere, _derniere = str(_annees[0]), str(_annees[-1])
+        _evolution = f"évolution {_premiere} → {_derniere}"
+        _profil = _profil.with_columns(
+            pl.struct(_premiere, _derniere, "décimales").map_elements(
+                lambda s: None if s[_premiere] is None or s[_derniere] is None
+                else (round(s[_derniere] - s[_premiere], s["décimales"]) or 0.0),   # « or » : pas de -0
+                return_dtype=pl.Float64,
+            ).alias(_evolution)
+        )
+        _table_profil, _table_compo = tableaux_profil(
+            _profil, _compo, _effectifs, _N_MIN, colonnes_en_plus=(_evolution,) if len(_annees) > 1 else ()
+        )
+        _sortie = [
+            mo.md(f"*Cellule grisée : moins de {_N_MIN} bâtiments renseignés. "
+                  f"« {_evolution} » = médiane {_derniere} − médiane {_premiere}.*"),
+            _table_profil,
+            boutons_export(_profil, "analyse4c_medianes_par_annee"),
+            mo.md("**Choix constructifs et techniques par année (% des bâtiments de l'année)**"),
+            _table_compo,
+            boutons_export(_compo, "analyse4c_categories_par_annee") if _compo.height else mo.md(""),
+        ]
+
+    mo.vstack([
+        mo.md("### 4c. Évolution des indicateurs par année (toutes classes)"),
+        *_sortie,
+    ])
+    return
 
 if __name__ == "__main__":
     app.run()
