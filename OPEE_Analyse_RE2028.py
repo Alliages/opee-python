@@ -37,11 +37,13 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.55"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "09/10/2026 16:45"
+    VERSION = "0.56"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "09/10/2026 17:05"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Analyse4 : 4a médianes par année (IC composant, Q1–Q3, budget 2028, macro-lots), "
+        (VERSION, "Analyse1 : choix de la vue « Global » ou « Par année » (une tuile et un petit "
+                  "graphique par année de dépôt, en % des projets de l'année, couleurs des classes)"),
+        ("0.55", "Analyse4 : 4a médianes par année (IC composant, Q1–Q3, budget 2028, macro-lots), "
                   "4b classes de l'Analyse1 par année à 100 % + indice de difficulté, 4c indicateurs de "
                   "l'Analyse2 par année ; indicateurs de profil et tableaux en dégradé mis en commun"),
         ("0.54", "Analyse3 réorganisée : 3b = cascade par lot (lots à plus de 5 kg d'écart + autres lots "
@@ -1319,11 +1321,13 @@ def widgets_analyse1(mo):
     # panneau reste statique et que le graphique lise sa valeur).
     # ============================================================================
     compter_par_batiment_a1 = mo.ui.switch(label="Compter par bâtiment (sinon par projet)", value=False)
-    return (compter_par_batiment_a1,)
+    VUE_GLOBALE_A1, VUE_ANNEE_A1 = "Global", "Par année"
+    vue_a1 = mo.ui.radio(options=[VUE_GLOBALE_A1, VUE_ANNEE_A1], value=VUE_GLOBALE_A1, inline=True, label="**Vue**")
+    return VUE_ANNEE_A1, compter_par_batiment_a1, vue_a1
 
 
 @app.cell(hide_code=True)
-def param_analyse1(ANALYSES, compter_par_batiment_a1, mo, panneau_filtres):
+def param_analyse1(ANALYSES, compter_par_batiment_a1, mo, panneau_filtres, vue_a1):
     # ============================================================================
     # CELLULE — Analyse1 : titre, lecture et panneau de filtres
     # ============================================================================
@@ -1334,9 +1338,11 @@ def param_analyse1(ANALYSES, compter_par_batiment_a1, mo, panneau_filtres):
             "(`ic_composant − (ic_construction_max_2028 − ic_chantier)`). Un projet de plusieurs "
             "bâtiments est classé sur son bâtiment **le plus éloigné** du budget.  \n"
             "**Indice de difficulté** = part des projets à **plus de 30 kgCO₂e/m²** du budget "
-            "(au-delà des leviers « simples »), calculée sur les projets classables (hors « Inconnu »)."
+            "(au-delà des leviers « simples »), calculée sur les projets classables (hors « Inconnu »).  \n"
+            "**Vue** : « Global » (toutes années) ou « Par année » (même graphique pour chaque année de "
+            "dépôt, en % des projets de l'année)."
         ),
-        panneau_filtres(bascules_analyse=(compter_par_batiment_a1,)),
+        panneau_filtres(bascules_analyse=(vue_a1, compter_par_batiment_a1)),
     ])
     return
 
@@ -1360,12 +1366,14 @@ def graphique_analyse1(
     DATA_a1,
     SEUIL_DIFFICULTE,
     SOUS_TITRE_FILTRES,
+    VUE_ANNEE_A1,
     boutons_export,
     compter_par_batiment_a1,
     expr_classe_2028,
     go,
     mo,
     pl,
+    vue_a1,
 ):
     # ============================================================================
     # CELLULE — Analyse1 : nombre de projets par classe, part du total et indice
@@ -1377,7 +1385,11 @@ def graphique_analyse1(
     #   3. Chiffres clés (nombre, part conforme, indice de difficulté)
     #   4. Graphique en barres : une barre par classe, étiquette « nombre + % »,
     #      accolade sur les classes « difficiles » (> 30 kg)
-    #   5. Tableau et exports
+    #   5. Vue « Global » : chiffres clés, graphique, tableau, exports
+    #   6. Vue « Par année » : une tuile par année (indice, effectif, part
+    #      conforme) et le graphique répété pour chaque année (petits multiples,
+    #      couleurs des classes, en % des unités classées de l'année)
+    #      Année = plus ancienne année de dépôt de PC du projet.
     #
     # Les parts sont calculées sur les projets CLASSABLES : « Inconnu » (écart non
     # calculable) est compté à part et n'entre pas dans le dénominateur.
@@ -1385,7 +1397,9 @@ def graphique_analyse1(
 
     # ---- Variables -------------------------------------------------------------
     _PAR_BATIMENT = compter_par_batiment_a1.value
+    _PAR_ANNEE = vue_a1.value == VUE_ANNEE_A1
     _UNITE = "bâtiments" if _PAR_BATIMENT else "projets"
+    _CLASSES_COURTES = dict(zip(CLASSES_2028, ["Conf.", "< 30", "30–80", "80–130", "> 130"]))
     _COULEUR_TEXTE = "#333333"
     _COULEUR_TEXTE_SECONDAIRE = "#6b6b6b"
     _BORNES_TEXTE = {
@@ -1399,13 +1413,13 @@ def graphique_analyse1(
 
     # 1. Unité comptée ------------------------------------------------------------
     if _PAR_BATIMENT:
-        _unites = DATA_a1.select("projet_id", "ID", "ecart_2028", "classe_2028")
+        _unites = DATA_a1.select("projet_id", "ID", "annee_depot", "ecart_2028", "classe_2028")
     else:
         # max() ignore les NULL : un projet n'est « Inconnu » que si AUCUN de ses
         # bâtiments n'a d'écart calculable.
         _unites = (
             DATA_a1.group_by("projet_id")
-            .agg(pl.col("ecart_2028").max(), pl.len().alias("nb_batiments"))
+            .agg(pl.col("annee_depot").first(), pl.col("ecart_2028").max(), pl.len().alias("nb_batiments"))
             .with_columns(expr_classe_2028().alias("classe_2028"))
         )
 
@@ -1500,19 +1514,95 @@ def graphique_analyse1(
         margin={"l": 60, "r": 20, "t": 90, "b": 60},
     )
 
-    # 5. Affichage : chiffres clés, graphique, tableau, exports -------------------
+    # 5. Vue « Global » : chiffres clés, graphique, tableau, exports ----------------
     _detail = _unites.sort("ecart_2028", descending=True, nulls_last=True)
-    mo.vstack([
-        _chiffres,
-        mo.ui.plotly(_fig),
-        mo.accordion({"Tableau des classes": mo.vstack([
-            mo.ui.table(TABLEAU_A1, selection=None),
-            boutons_export(TABLEAU_A1, f"analyse1_classes_par_{_UNITE}"),
-        ]), f"Détail des {_UNITE} classés": mo.vstack([
-            mo.ui.table(_detail, selection=None),
-            boutons_export(_detail, f"analyse1_detail_{_UNITE}"),
-        ])}),
-    ])
+    _volet_detail = {f"Détail des {_UNITE} classés": mo.vstack([
+        mo.ui.table(_detail, selection=None),
+        boutons_export(_detail, f"analyse1_detail_{_UNITE}"),
+    ])}
+    if not _PAR_ANNEE:
+        _sortie = mo.vstack([
+            _chiffres,
+            mo.ui.plotly(_fig),
+            mo.accordion({"Tableau des classes": mo.vstack([
+                mo.ui.table(TABLEAU_A1, selection=None),
+                boutons_export(TABLEAU_A1, f"analyse1_classes_par_{_UNITE}"),
+            ]), **_volet_detail}),
+        ])
+
+    # 6. Vue « Par année » : tuiles et petits multiples --------------------------------
+    else:
+        _classes_annee = _unites.filter(pl.col("classe_2028").is_in(CLASSES_2028) & pl.col("annee_depot").is_not_null())
+        _annees = sorted(_classes_annee["annee_depot"].unique().to_list())
+        _n_annee = dict(_classes_annee.group_by("annee_depot").len().iter_rows())
+        _inconnus_annee = dict(
+            _unites.filter((pl.col("classe_2028") == CLASSE_INCONNUE) & pl.col("annee_depot").is_not_null())
+            .group_by("annee_depot").len().iter_rows()
+        )
+        TABLEAU_A1_ANNEE = (
+            _classes_annee.group_by("annee_depot", "classe_2028").len()
+            .with_columns((100 * pl.col("len") / pl.col("len").sum().over("annee_depot")).round(1).alias("part (%)"))
+            .rename({"annee_depot": "année", "classe_2028": "classe", "len": _UNITE})
+            .sort("année", pl.col("classe").replace_strict({c: i for i, c in enumerate(CLASSES_2028)}))
+        )
+        _parts = {(r["année"], r["classe"]): r["part (%)"] for r in TABLEAU_A1_ANNEE.iter_rows(named=True)}
+        _comptes_annee = {(r["année"], r["classe"]): r[_UNITE] for r in TABLEAU_A1_ANNEE.iter_rows(named=True)}
+        _indice_annee = {a: sum(_parts.get((a, c), 0.0) for c in CLASSES_DIFFICILES) for a in _annees}
+
+        if not _annees:
+            _sortie = mo.callout(mo.md(f"Aucun {_UNITE[:-1]} classé avec une année de dépôt."), kind="warn")
+        else:
+            from plotly.subplots import make_subplots
+
+            # Tuiles : une par année
+            _tuiles = mo.hstack([
+                mo.stat(value=f"{_indice_annee[a]:.0f} %", label=f"{a} — indice de difficulté",
+                        caption=(f"{_n_annee[a]} {_UNITE}"
+                                 + (f" (+{_inconnus_annee[a]} « Inconnu »)" if _inconnus_annee.get(a) else "")
+                                 + f" · {_parts.get((a, CLASSES_2028[0]), 0.0):.0f} % conformes"))
+                for a in _annees
+            ], justify="start", gap=1, wrap=True)
+
+            # Petits multiples : le graphique global, une fois par année (axe Y commun)
+            _y_max_annee = max(_parts.values()) if _parts else 1
+            _fig_annee = make_subplots(
+                rows=1, cols=len(_annees), shared_yaxes=True, horizontal_spacing=0.03,
+                subplot_titles=[f"<b>{a}</b> — n={_n_annee[a]} — indice <b>{_indice_annee[a]:.0f} %</b>"
+                                for a in _annees],
+            )
+            for _i, _a in enumerate(_annees, start=1):
+                _v = [_parts.get((_a, c), 0.0) for c in CLASSES_2028]
+                _fig_annee.add_trace(go.Bar(
+                    x=[_CLASSES_COURTES[c] for c in CLASSES_2028], y=_v, showlegend=False,
+                    marker={"color": [COULEURS_CLASSES[c] for c in CLASSES_2028], "cornerradius": 3},
+                    text=[f"{v:.0f} %" for v in _v], textposition="outside", cliponaxis=False,
+                    textfont={"color": _COULEUR_TEXTE, "size": 11},
+                    customdata=[[c, _comptes_annee.get((_a, c), 0)] for c in CLASSES_2028],
+                    hovertemplate=(f"<b>{_a}</b> — %{{customdata[0]}}<br>%{{y:.1f}} % des {_UNITE} classés "
+                                   f"(%{{customdata[1]}} {_UNITE})<extra></extra>"),
+                ), row=1, col=_i)
+            _fig_annee.update_yaxes(range=[0, _y_max_annee * 1.25], gridcolor="#ececec")
+            _fig_annee.update_yaxes(title_text=f"% des {_UNITE} classés de l'année", row=1, col=1)
+            _fig_annee.update_layout(
+                height=460, width=None, template="plotly_white", bargap=0.15,
+                title={"text": (
+                    f"<b>Analyse1 — {ANALYSES[1]}</b> — par année de dépôt, par {_UNITE[:-1]}<br>"
+                    f"<sup>{SOUS_TITRE_FILTRES}</sup>"
+                )},
+                margin={"l": 60, "r": 20, "t": 120, "b": 60},
+            )
+            _sortie = mo.vstack([
+                _tuiles,
+                mo.ui.plotly(_fig_annee),
+                mo.md("*Classes : Conf. = conforme 2028 ; < 30, 30–80, 80–130, > 130 = écart au budget en "
+                      "kgCO₂e/m². Année = plus ancienne année de dépôt de PC du projet.*"),
+                mo.accordion({"Tableau des classes par année": mo.vstack([
+                    mo.ui.table(TABLEAU_A1_ANNEE, selection=None),
+                    boutons_export(TABLEAU_A1_ANNEE, f"analyse1_classes_par_annee_{_UNITE}"),
+                ]), **_volet_detail}),
+            ])
+
+    _sortie
     return INDICE_DIFFICULTE, TABLEAU_A1
 
 
