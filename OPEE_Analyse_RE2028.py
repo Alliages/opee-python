@@ -37,11 +37,14 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.56"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "09/10/2026 17:05"
+    VERSION = "0.57"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "12/10/2026 03:40"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Analyse1 : choix de la vue « Global » ou « Par année » (une tuile et un petit "
+        (VERSION, "Analyse5 : simulateur (forfaits 8.1 / lot 10 au forfait -> médiane du calcul détaillé, "
+                  "régression compacité + vitrage, curseurs de cible, classes et indice avant / après) ; "
+                  "exclusion permanente des bâtiments aux lots incohérents ; colonne compacité dans le socle"),
+        ("0.56", "Analyse1 : choix de la vue « Global » ou « Par année » (une tuile et un petit "
                   "graphique par année de dépôt, en % des projets de l'année, couleurs des classes)"),
         ("0.55", "Analyse4 : 4a médianes par année (IC composant, Q1–Q3, budget 2028, macro-lots), "
                   "4b classes de l'Analyse1 par année à 100 % + indice de difficulté, 4c indicateurs de "
@@ -220,7 +223,7 @@ def sommaire_analyses(mo):
         5: "Simulateur de leviers",
         6: "Effet propre de chaque levier (régression)",
     }
-    ANALYSES_PRETES = {1, 2, 3, 4}  # analyses déjà construites
+    ANALYSES_PRETES = {1, 2, 3, 4, 5}  # analyses déjà construites
 
     _lignes = "\n".join(
         f"- **Analyse{_n}** — {_titre}" + ("" if _n in ANALYSES_PRETES else " *(à venir)*")
@@ -235,8 +238,9 @@ def sommaire_analyses(mo):
         "- **Écart au budget** = `ic_composant − budget composant 2028` (négatif ou nul = conforme 2028).\n"
         "- **Macro-lots** (grille du HUB) : gros œuvre = lots 1 à 3 ; second œuvre = lots 4 à 7 ; "
         "lots techniques = lots 8 à 13.\n"
-        "- **Périmètre** : logements collectifs, hors petit collectif (sref < 200 m²) et hors IGH "
-        "(hauteur > 50 m). Le seuil 2031 n'est pas étudié."
+        "- **Périmètre** : logements collectifs, hors petit collectif (sref < 200 m²), hors IGH "
+        "(hauteur > 50 m) et hors bâtiments aux lots incohérents (somme des lots ≠ IC composant). "
+        "Le seuil 2031 n'est pas étudié."
     )
     return (ANALYSES,)
 
@@ -416,6 +420,18 @@ def constantes_analyse(pl):
     SEUIL_DIFFICULTE = 30
     CLASSES_DIFFICILES = CLASSES_2028[2:]
 
+    # --- Cohérence des lots (exclusion permanente) -----------------------------------
+    # Bâtiment exclu si |somme des lots 1 à 13 − IC composant| dépasse le plus grand
+    # de ces deux écarts (ex. lots saisis en kg au lieu de kg/m²).
+    TOLERANCE_LOTS_PCT = 10         # % de l'IC composant
+    TOLERANCE_LOTS_KG = 5           # kgCO2e/m²
+
+    # --- Analyse5 : forfaits RE2020 du logement collectif (kgCO2e/m²) ------------------
+    # Arrêté du 4 août 2021, annexe XI : 8.1 = 16+0+57+1 ; lot 10 = 24+0+23+1.
+    FORFAIT_8_1 = 74
+    FORFAIT_LOT_10 = 48
+    HAUTEUR_PAR_NIVEAU = 3          # m : nombre de niveaux estimé = hauteur / 3
+
     # --- Lots, sous-lots et macro-lots (grille du HUB) ------------------------------
     NB_SOUS_LOTS = {1: 3, 2: 3, 3: 8, 4: 3, 5: 5, 6: 3, 7: 3, 8: 7, 9: 2, 10: 6, 11: 3, 12: 1, 13: 1}
     COLS_LOTS = [f"ic_composant_lot_{i}" for i in NB_SOUS_LOTS]
@@ -467,7 +483,10 @@ def constantes_analyse(pl):
         COLS_SOUS_LOTS,
         COULEURS_CLASSES,
         EXCLURE_SREF_INCONNUE,
+        FORFAIT_8_1,
+        FORFAIT_LOT_10,
         HAUTEUR_IGH,
+        HAUTEUR_PAR_NIVEAU,
         LIBELLE_MATERIAU_NUL,
         MACRO_LOTS,
         MATERIAUX_OPTIONS,
@@ -475,6 +494,8 @@ def constantes_analyse(pl):
         SEUIL_DIFFICULTE,
         SREF_MIN_COLLECTIF,
         SURFACE_PAR_LOGEMENT,
+        TOLERANCE_LOTS_KG,
+        TOLERANCE_LOTS_PCT,
         USAGE_LOGEMENT_COLLECTIF,
         expr_classe_2028,
     )
@@ -650,8 +671,10 @@ def extraction_unique(
 
 @app.cell(hide_code=True)
 def colonnes_calculees(
+    COLS_LOTS,
     COLS_MACRO_LOTS,
     DATA_extrait,
+    HAUTEUR_PAR_NIVEAU,
     MACRO_LOTS,
     SREF_PLATEAU,
     SURFACE_PAR_LOGEMENT,
@@ -676,6 +699,8 @@ def colonnes_calculees(
     #   annee_depot                : plus ancienne année de dépôt du projet
     #   sref_fiable, udd_pct, part_ded_pct, structure, generateur, ventilation,
     #   reseau                     : indicateurs de profil (Analyses 2 et 4)
+    #   somme_lots                 : somme des lots 1 à 13 (contrôle de cohérence)
+    #   nb_niveaux_estime, compacite : hauteur / 3 ; (murs + baies) / sref + 2 / niveaux
     # Résultat : DATA_brut.
     # ============================================================================
 
@@ -744,6 +769,17 @@ def colonnes_calculees(
         .otherwise(pl.lit("Non raccordé")).alias("reseau"),
     )
 
+    # 7. Analyse5 et contrôle : somme des lots, nombre de niveaux, compacité
+    #    compacité ≈ (murs + baies) / sref + 2 / niveaux
+    #    (m² de parois déperditives par m² de sref : façades + toiture + plancher bas)
+    _niveaux = (pl.col("hauteur_hors_toiture") / HAUTEUR_PAR_NIVEAU).round(0).clip(lower_bound=1)
+    _df = _df.with_columns(
+        pl.sum_horizontal([pl.col(c).fill_null(0) for c in COLS_LOTS]).alias("somme_lots"),
+        _niveaux.alias("nb_niveaux_estime"),
+        ((pl.col("surface_murs_rset") + pl.col("surface_baies_rset")) / _sref_fiable + 2 / _niveaux)
+        .alias("compacite"),
+    )
+
     DATA_brut = _df
     return (DATA_brut,)
 
@@ -754,6 +790,8 @@ def exclusions_permanentes(
     EXCLURE_SREF_INCONNUE,
     HAUTEUR_IGH,
     SREF_MIN_COLLECTIF,
+    TOLERANCE_LOTS_KG,
+    TOLERANCE_LOTS_PCT,
     pl,
 ):
     # ============================================================================
@@ -762,6 +800,8 @@ def exclusions_permanentes(
     #   1. sref non reconstituée (taille inconnue)       [si EXCLURE_SREF_INCONNUE]
     #   2. petit collectif : sref < SREF_MIN_COLLECTIF m²
     #   3. IGH : hauteur_hors_toiture > HAUTEUR_IGH m
+    #   4. lots incohérents : |somme des lots − IC composant| > tolérance
+    #      (ex. lots saisis en kg au lieu de kg/m² ; IC composant inconnu : conservé)
     #
     # Les bâtiments « plateau » (sref >= 4000 m²) ne sont PAS exclus : ils sont
     # seulement retirés des indicateurs par logement (nb_logements_estime = NULL).
@@ -776,6 +816,10 @@ def exclusions_permanentes(
          (pl.col("sref") >= SREF_MIN_COLLECTIF).fill_null(True)),
         (f"IGH (hauteur > {HAUTEUR_IGH} m)", True,
          (pl.col("hauteur_hors_toiture") <= HAUTEUR_IGH).fill_null(True)),
+        (f"lots incohérents (somme des lots ≠ IC composant à {TOLERANCE_LOTS_PCT} % près)", True,
+         ((pl.col("somme_lots") - pl.col("ic_composant")).abs()
+          <= pl.max_horizontal(pl.lit(TOLERANCE_LOTS_KG), pl.col("ic_composant").abs() * TOLERANCE_LOTS_PCT / 100))
+         .fill_null(True)),
     ]
 
     _df = DATA_brut
@@ -2861,6 +2905,467 @@ def tableaux_4c(
     mo.vstack([
         mo.md("### 4c. Évolution des indicateurs par année (toutes classes)"),
         *_sortie,
+    ])
+    return
+
+# ================================================================================
+# ANALYSE5 — Simulateur de leviers
+# ================================================================================
+
+
+@app.cell(hide_code=True)
+def widgets_analyse5(mo):
+    # ============================================================================
+    # CELLULE — Analyse5 : leviers du simulateur (affichés juste avant 5c)
+    #   - forfaits_a5            : se passer des forfaits 8.1 et lot 10
+    #   - compacite_a5 / cible   : ramener la compacité à une cible (m²/m²)
+    #   - vitrage_a5 / cible     : ramener le taux de vitrage à une cible (%)
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _VITRAGE_MIN, _VITRAGE_MAX, _VITRAGE_DEFAUT = 10, 40, 20          # % de la sref
+    _COMPACITE_MIN, _COMPACITE_MAX, _COMPACITE_DEFAUT = 0.5, 2.5, 1.2  # m²/m²
+
+    forfaits_a5 = mo.ui.switch(label="Se passer des forfaits 8.1 et lot 10", value=True)
+    compacite_a5 = mo.ui.switch(label="Améliorer la compacité", value=True)
+    cible_compacite_a5 = mo.ui.slider(
+        start=_COMPACITE_MIN, stop=_COMPACITE_MAX, step=0.05, value=_COMPACITE_DEFAUT, show_value=True,
+        label="Compacité cible (m² de parois / m² de sref)",
+    )
+    vitrage_a5 = mo.ui.switch(label="Réduire le taux de vitrage", value=True)
+    cible_vitrage_a5 = mo.ui.slider(
+        start=_VITRAGE_MIN, stop=_VITRAGE_MAX, step=1, value=_VITRAGE_DEFAUT, show_value=True,
+        label="Taux de vitrage cible (% de la sref)",
+    )
+    return compacite_a5, cible_compacite_a5, cible_vitrage_a5, forfaits_a5, vitrage_a5
+
+
+@app.cell(hide_code=True)
+def param_analyse5(ANALYSES, mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE — Analyse5 : titre, lecture et panneau de filtres
+    # ============================================================================
+    mo.vstack([
+        mo.md(
+            f"## Analyse5 — {ANALYSES[5]}\n\n"
+            "On applique des leviers, on recalcule l'IC composant de chaque bâtiment, puis les classes "
+            "et l'indice de difficulté. Comptage **par projet** (classé sur son bâtiment le plus éloigné, "
+            "comme l'Analyse1).  \n"
+            "**5a.** Forfaits du sous-lot 8.1 et du lot 10 : qui les utilise, et ce que donne un calcul détaillé.  \n"
+            "**5b.** Régression : effet de la compacité et du taux de vitrage sur l'IC composant.  \n"
+            "**5c.** Simulation : leviers au choix, classes et indice de difficulté avant / après."
+        ),
+        panneau_filtres(),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_analyse5(DATA_base, appliquer_filtres, resume_filtres):
+    # Résumé SOUS les filtres (cellule séparée : elle lit les valeurs des widgets).
+    DATA_a5 = appliquer_filtres(DATA_base, verbeux=False)
+    resume_filtres(DATA_a5)
+    return (DATA_a5,)
+
+
+@app.cell(hide_code=True)
+def forfaits_analyse5(
+    CLASSES_2028,
+    DATA_a5,
+    FORFAIT_8_1,
+    FORFAIT_LOT_10,
+    boutons_export,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Analyse5 : 5a. Forfaits du sous-lot 8.1 et du lot 10
+    #
+    #   1. Repérage : valeur du lot égale au forfait (± _TOLERANCE)
+    #      (contrôle possible par la table composant : type CONVENTIONNELLE,
+    #      « Approche simplifiée : Lots forfaitaires », cf. 3d)
+    #   2. Référence « calcul détaillé » = MÉDIANE des bâtiments qui n'utilisent pas
+    #      le forfait (valeurs > 0) ; gain = forfait − médiane, ramené à 0 si la
+    #      médiane dépasse le forfait (choix validé : référence (ii))
+    #   3. Part des bâtiments au forfait par classe
+    # Résultat : GAINS_FORFAITS_A5 {colonne: (indicateur de forfait, gain)}
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _TOLERANCE = 0.05                  # kgCO2e/m²
+    _LOTS = [
+        ("Sous-lot 8.1", "ic_composant_sous_lot_8_1", FORFAIT_8_1, "forfait_8_1"),
+        ("Lot 10", "ic_composant_lot_10", FORFAIT_LOT_10, "forfait_lot_10"),
+    ]
+
+    _df = DATA_a5.filter(pl.col("classe_2028").is_in(CLASSES_2028))
+    _df = _df.with_columns([
+        ((pl.col(_col) - _forfait).abs() <= _TOLERANCE).fill_null(False).alias(_indic)
+        for _, _col, _forfait, _indic in _LOTS
+    ])
+
+    # 1-2. Référence détaillée et gain par lot
+    _lignes, GAINS_FORFAITS_A5 = [], {}
+    for _nom, _col, _forfait, _indic in _LOTS:
+        _detail = _df.filter(~pl.col(_indic) & (pl.col(_col) > 0))[_col]
+        _mediane = _detail.median() if _detail.len() else None
+        _gain = max(0.0, _forfait - _mediane) if _mediane is not None else 0.0
+        GAINS_FORFAITS_A5[_col] = (_indic, _gain)
+        _lignes.append({
+            "lot": _nom, "forfait (kg/m²)": _forfait,
+            "bâtiments au forfait": int(_df[_indic].sum()),
+            "% des bâtiments": round(100 * _df[_indic].mean(), 1) if _df.height else None,
+            "bâtiments en calcul détaillé": _detail.len(),
+            "médiane du calcul détaillé (kg/m²)": round(_mediane, 1) if _mediane is not None else None,
+            "gain par bâtiment au forfait (kg/m²)": round(_gain, 1),
+        })
+    _synthese = pl.DataFrame(_lignes)
+
+    # 3. Part des bâtiments au forfait par classe
+    _ordre = {c: i for i, c in enumerate(CLASSES_2028)}
+    _par_classe = (
+        _df.group_by("classe_2028").agg(
+            pl.len().alias("bâtiments"),
+            (100 * pl.col("forfait_8_1").mean()).round(1).alias("% au forfait 8.1"),
+            (100 * pl.col("forfait_lot_10").mean()).round(1).alias("% au forfait lot 10"),
+        ).sort(pl.col("classe_2028").replace_strict(_ordre, default=99))
+        .rename({"classe_2028": "classe"})
+    )
+    DATA_a5_forfaits = _df.select("ID", "forfait_8_1", "forfait_lot_10")
+
+    mo.vstack([
+        mo.md("### 5a. Forfaits du sous-lot 8.1 et du lot 10\n\n"
+              f"*Forfaits RE2020 du logement collectif : 8.1 = {FORFAIT_8_1}, lot 10 = {FORFAIT_LOT_10} kgCO₂e/m² "
+              "(arrêté du 4 août 2021, annexe XI). Bâtiment « au forfait » = valeur du lot égale au forfait. "
+              "Gain = forfait − médiane des calculs détaillés (0 si la médiane dépasse le forfait).*"),
+        mo.ui.table(_synthese, selection=None, pagination=False),
+        mo.md("**Part des bâtiments au forfait par classe**"),
+        mo.ui.table(_par_classe, selection=None, pagination=False),
+        boutons_export(_synthese, "analyse5a_forfaits"),
+    ])
+    return DATA_a5_forfaits, GAINS_FORFAITS_A5
+
+
+@app.cell(hide_code=True)
+def regression_analyse5(CLASSES_2028, DATA_a5, boutons_export, mo, pl):
+    # ============================================================================
+    # CELLULE — Analyse5 : 5b. Régression compacité + taux de vitrage
+    #
+    # UN SEUL modèle pour les deux leviers (les baies font partie de la façade :
+    # deux régressions séparées compteraient deux fois le même effet).
+    #   IC ~ compacité + taux de vitrage + log(sref) + parking infra / logement
+    #        + matériau de structure + zone climatique (H1/H2/H3) + année de dépôt
+    # Moindres carrés (numpy), écarts-types robustes (HC1), IC à 95 %.
+    # Estimé pour l'IC composant, puis lot par lot (2, 3, 4, 6) pour voir où agit
+    # chaque levier. Exclus : sref « plateau », valeurs manquantes, 1 % extrêmes.
+    # Résultat : COEFS_A5 {"compacite": (coef, borne basse, borne haute), ...}
+    # ============================================================================
+    import numpy as np
+
+    # ---- Variables -------------------------------------------------------------
+    _N_MIN = 30                        # bâtiments minimum pour estimer le modèle
+    _QUANTILE_EXTREMES = 0.01
+    _NB_MATERIAUX = 3                  # matériaux gardés, les autres -> « Autres »
+    _LEVIERS = {"compacite": "Compacité (+0,1 m²/m²)", "taux_vitrage": "Taux de vitrage (+1 point)"}
+    _ECHELLE = {"compacite": 0.1, "taux_vitrage": 1.0}      # pour lire les coefficients
+    _CIBLES = [
+        ("IC composant", "ic_composant"),
+        ("Lot 2 : fondations", "ic_composant_lot_2"),
+        ("Lot 3 : superstructure", "ic_composant_lot_3"),
+        ("Lot 4 : couverture", "ic_composant_lot_4"),
+        ("Lot 6 : façades et menuiseries ext.", "ic_composant_lot_6"),
+    ]
+
+    # 1. Données du modèle ------------------------------------------------------------
+    _df = (
+        DATA_a5.filter(pl.col("classe_2028").is_in(CLASSES_2028))
+        .with_columns(
+            pl.col("taux_vitrage_pct").alias("taux_vitrage"),
+            pl.col("sref_fiable").log().alias("log_sref"),
+            pl.col("parking_infra_par_logement").fill_null(0).alias("parking"),
+            pl.col("zone_climatique").cast(pl.Utf8).str.slice(0, 2).alias("zone"),
+            pl.col("annee_depot").cast(pl.Utf8).alias("annee"),
+        )
+        .drop_nulls(["compacite", "taux_vitrage", "log_sref", "zone", "annee", "ic_composant"])
+    )
+    _bas, _haut = _df["ic_composant"].quantile(_QUANTILE_EXTREMES), _df["ic_composant"].quantile(1 - _QUANTILE_EXTREMES)
+    if _df.height:
+        _df = _df.filter(pl.col("ic_composant").is_between(_bas, _haut))
+    _materiaux = _df.group_by("structure").len().sort("len", descending=True)["structure"].head(_NB_MATERIAUX).to_list()
+    _df = _df.with_columns(
+        pl.when(pl.col("structure").is_in(_materiaux)).then(pl.col("structure")).otherwise(pl.lit("Autres")).alias("materiau")
+    )
+
+
+    def _matrice(df):
+        """Matrice explicative : constante, variables continues, indicatrices
+        (première modalité de chaque variable qualitative = référence)."""
+        _cols = [np.ones(df.height), *[df[c].to_numpy().astype(float)
+                                       for c in ("compacite", "taux_vitrage", "log_sref", "parking")]]
+        _noms = ["constante", "compacite", "taux_vitrage", "log_sref", "parking"]
+        for _var in ("materiau", "zone", "annee"):
+            _modalites = sorted(df[_var].unique().to_list())
+            for _m in _modalites[1:]:
+                _cols.append((df[_var] == _m).to_numpy().astype(float))
+                _noms.append(f"{_var} = {_m}")
+        return np.column_stack(_cols), _noms
+
+
+    def _mco(y, X):
+        """Moindres carrés + écarts-types robustes HC1. Renvoie (beta, se, R²)."""
+        _n, _k = X.shape
+        _xtx_inv = np.linalg.pinv(X.T @ X)
+        _beta = _xtx_inv @ X.T @ y
+        _e = y - X @ _beta
+        _meat = X.T @ (X * (_e ** 2)[:, None])
+        _cov = _xtx_inv @ _meat @ _xtx_inv * _n / max(_n - _k, 1)
+        _r2 = 1 - (_e @ _e) / ((y - y.mean()) @ (y - y.mean())) if _n > 1 else float("nan")
+        return _beta, np.sqrt(np.diag(_cov)), _r2
+
+
+    # 2. Estimation pour chaque variable expliquée ---------------------------------------
+    COEFS_A5, _lignes, _detail_principal = {}, [], None
+    if _df.height < _N_MIN:
+        _sortie = mo.callout(mo.md(f"Pas assez de bâtiments pour la régression ({_df.height} < {_N_MIN})."), kind="warn")
+    else:
+        _X, _noms = _matrice(_df)
+        for _libelle, _col in _CIBLES:
+            _d = _df.with_columns(pl.col(_col).fill_null(0))
+            _beta, _se, _r2 = _mco(_d[_col].to_numpy().astype(float), _X)
+            for _var, _lib in _LEVIERS.items():
+                _i = _noms.index(_var)
+                _e = _ECHELLE[_var]
+                _lignes.append({
+                    "variable expliquée": _libelle, "levier": _lib,
+                    "effet (kgCO₂e/m²)": round(_beta[_i] * _e, 2),
+                    "IC 95 % bas": round((_beta[_i] - 1.96 * _se[_i]) * _e, 2),
+                    "IC 95 % haut": round((_beta[_i] + 1.96 * _se[_i]) * _e, 2),
+                    "significatif": abs(_beta[_i]) > 1.96 * _se[_i],
+                    "R²": round(_r2, 2), "bâtiments": _df.height,
+                })
+                if _col == "ic_composant":
+                    COEFS_A5[_var] = (_beta[_i], _beta[_i] - 1.96 * _se[_i], _beta[_i] + 1.96 * _se[_i])
+            if _col == "ic_composant":
+                _detail_principal = pl.DataFrame({
+                    "variable": _noms, "coefficient": np.round(_beta, 3),
+                    "écart-type robuste": np.round(_se, 3),
+                    "IC 95 % bas": np.round(_beta - 1.96 * _se, 3), "IC 95 % haut": np.round(_beta + 1.96 * _se, 3),
+                })
+        _tableau = pl.DataFrame(_lignes)
+        _sortie = mo.vstack([
+            mo.ui.table(_tableau, selection=None, pagination=False),
+            mo.accordion({"Détail du modèle principal (IC composant)": mo.vstack([
+                mo.ui.table(_detail_principal, selection=None, pagination=False),
+                boutons_export(_detail_principal, "analyse5b_modele_ic_composant"),
+            ])}),
+            boutons_export(_tableau, "analyse5b_effets_leviers"),
+        ])
+
+    mo.vstack([
+        mo.md("### 5b. Effet de la compacité et du taux de vitrage (régression)\n\n"
+              "*Compacité ≈ (murs + baies) / sref + 2 / niveaux (niveaux ≈ hauteur / 3 m). Taux de vitrage = "
+              "baies / sref en %. Effet = variation de l'IC pour +0,1 m²/m² de compacité ou +1 point de vitrage, "
+              "à taille, parking, matériau, zone et année égaux. Corrélation, pas causalité : ordres de grandeur. "
+              "Bâtiments « plateau » exclus (sref inconnue).*"),
+        _sortie,
+    ])
+    return (COEFS_A5,)
+
+
+@app.cell(hide_code=True)
+def leviers_analyse5(
+    COEFS_A5,
+    cible_compacite_a5,
+    cible_vitrage_a5,
+    compacite_a5,
+    forfaits_a5,
+    mo,
+    vitrage_a5,
+):
+    # ============================================================================
+    # CELLULE — Analyse5 : choix des leviers (juste au-dessus de la simulation)
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _VITRAGE_MINIMUM_REGLEMENTAIRE = 100 / 6    # baies ≥ 1/6 de la surface habitable (à confirmer)
+
+
+    def _avertissement(var):
+        """Levier neutralisé si l'effet estimé est négatif ; signalé s'il n'est pas significatif."""
+        if var not in COEFS_A5:
+            return "*régression non estimée : levier sans effet*"
+        _b, _bas, _haut = COEFS_A5[var]
+        if _b <= 0:
+            return "*effet estimé négatif ou nul : levier neutralisé*"
+        if _bas <= 0:
+            return "*effet non significatif (l'intervalle contient 0) : à lire avec prudence*"
+        return ""
+
+
+    _note_vitrage = (
+        f"*Sous {_VITRAGE_MINIMUM_REGLEMENTAIRE:.1f} % : en dessous de la surface minimale de baies (1/6 de la "
+        "surface habitable).*" if cible_vitrage_a5.value < _VITRAGE_MINIMUM_REGLEMENTAIRE else ""
+    )
+    mo.vstack([
+        mo.md("### 5c. Simulation\n\n**Leviers**"),
+        mo.hstack([forfaits_a5], justify="start"),
+        mo.hstack([compacite_a5, cible_compacite_a5, mo.md(_avertissement("compacite"))], justify="start", gap=2),
+        mo.hstack([vitrage_a5, cible_vitrage_a5, mo.md(_avertissement("taux_vitrage"))], justify="start", gap=2),
+        mo.md(_note_vitrage),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def simulation_analyse5(
+    CLASSES_2028,
+    CLASSES_DIFFICILES,
+    COEFS_A5,
+    COULEURS_CLASSES,
+    DATA_a5,
+    DATA_a5_forfaits,
+    GAINS_FORFAITS_A5,
+    SOUS_TITRE_FILTRES,
+    boutons_export,
+    cible_compacite_a5,
+    cible_vitrage_a5,
+    compacite_a5,
+    expr_classe_2028,
+    forfaits_a5,
+    go,
+    mo,
+    pl,
+    vitrage_a5,
+):
+    # ============================================================================
+    # CELLULE — Analyse5 : 5c. Simulation
+    #
+    #   1. Gain par bâtiment et par levier (kgCO2e/m²) :
+    #        forfaits   : gain du lot (cf. 5a) si le bâtiment est au forfait
+    #        compacité  : coefficient × (compacité − cible), si au-dessus de la cible
+    #        vitrage    : coefficient × (taux − cible), si au-dessus de la cible
+    #      Coefficient négatif ou nul -> levier neutralisé. Gain total plafonné à
+    #      l'IC composant.
+    #   2. Nouvel écart au budget 2028, nouvelle classe ; projets classés sur leur
+    #      bâtiment le plus éloigné (comme l'Analyse1)
+    #   3. Indice de difficulté avant / après, et avec chaque levier seul
+    # Le budget composant 2028 de chaque bâtiment est gardé tel quel (effet Mided
+    # de l'abandon des forfaits non pris en compte : à vérifier).
+    # ============================================================================
+
+    # ---- Variables -------------------------------------------------------------
+    _ACTIFS = {
+        "forfaits": forfaits_a5.value,
+        "compacite": compacite_a5.value,
+        "vitrage": vitrage_a5.value,
+    }
+    _CIBLE_COMPACITE = cible_compacite_a5.value
+    _CIBLE_VITRAGE = cible_vitrage_a5.value
+    _NOMS_LEVIERS = {"forfaits": "Forfaits 8.1 et lot 10", "compacite": "Compacité", "vitrage": "Taux de vitrage"}
+    _COULEUR_AVANT = "#c3c2b7"
+    _COULEUR_TEXTE = "#333333"
+
+
+    def _coef(var):
+        """Coefficient retenu : 0 si non estimé ou négatif."""
+        return max(COEFS_A5[var][0], 0.0) if var in COEFS_A5 else 0.0
+
+
+    # 1. Gains par bâtiment ---------------------------------------------------------------
+    _df = DATA_a5.join(DATA_a5_forfaits, on="ID", how="left")
+    _gain_forfaits = sum(
+        pl.when(pl.col(_indic).fill_null(False)).then(pl.lit(_gain)).otherwise(pl.lit(0.0))
+        for _indic, _gain in GAINS_FORFAITS_A5.values()
+    )
+    _df = _df.with_columns(
+        _gain_forfaits.alias("gain_forfaits"),
+        (_coef("compacite") * (pl.col("compacite") - _CIBLE_COMPACITE).clip(lower_bound=0)).fill_null(0).alias("gain_compacite"),
+        (_coef("taux_vitrage") * (pl.col("taux_vitrage_pct") - _CIBLE_VITRAGE).clip(lower_bound=0)).fill_null(0).alias("gain_vitrage"),
+    )
+
+
+    def _projets(df, leviers):
+        """Classe de chaque projet après application des `leviers` (liste de clés)."""
+        _gain = sum((pl.col(f"gain_{l}") for l in leviers), pl.lit(0.0))
+        _gain = pl.min_horizontal(_gain, pl.col("ic_composant").fill_null(0))       # plafond
+        return (
+            df.with_columns((pl.col("ecart_2028") - _gain).alias("ecart_simule"))
+            .group_by("projet_id").agg(pl.col("ecart_simule").max())
+            .with_columns(expr_classe_2028("ecart_simule").alias("classe"))
+            .filter(pl.col("classe").is_in(CLASSES_2028))
+        )
+
+
+    def _indice(projets):
+        return 100 * projets["classe"].is_in(CLASSES_DIFFICILES).mean() if projets.height else 0.0
+
+
+    _actifs = [l for l, a in _ACTIFS.items() if a]
+    _avant, _apres = _projets(_df, []), _projets(_df, _actifs)
+    _indice_avant, _indice_apres = _indice(_avant), _indice(_apres)
+
+    # 2. Graphique : projets par classe avant / après ---------------------------------------
+    _n_avant = dict(_avant.group_by("classe").len().iter_rows())
+    _n_apres = dict(_apres.group_by("classe").len().iter_rows())
+    _fig = go.Figure()
+    _fig.add_trace(go.Bar(
+        x=CLASSES_2028, y=[_n_avant.get(c, 0) for c in CLASSES_2028], name="Avant",
+        marker={"color": _COULEUR_AVANT, "cornerradius": 3},
+        text=[_n_avant.get(c, 0) for c in CLASSES_2028], textposition="outside",
+        textfont={"color": _COULEUR_TEXTE}, cliponaxis=False,
+        hovertemplate="<b>%{x}</b><br>Avant : %{y} projets<extra></extra>",
+    ))
+    _fig.add_trace(go.Bar(
+        x=CLASSES_2028, y=[_n_apres.get(c, 0) for c in CLASSES_2028], name="Après leviers", showlegend=False,
+        marker={"color": [COULEURS_CLASSES[c] for c in CLASSES_2028], "cornerradius": 3},
+        text=[_n_apres.get(c, 0) for c in CLASSES_2028], textposition="outside",
+        textfont={"color": _COULEUR_TEXTE}, cliponaxis=False,
+        hovertemplate="<b>%{x}</b><br>Après : %{y} projets<extra></extra>",
+    ))
+    # Légende de « Après » : un carré neutre (la barre prend la couleur de sa classe)
+    _fig.add_trace(go.Bar(x=[None], y=[None], name="Après leviers (couleur de la classe)",
+                          marker={"color": "#52514e"}, hoverinfo="skip"))
+    _fig.update_layout(
+        barmode="group", height=480, width=None, template="plotly_white", bargap=0.25, bargroupgap=0.08,
+        title={"text": (f"<b>Analyse5c — Projets par classe, avant et après les leviers</b><br>"
+                        f"<sup>{SOUS_TITRE_FILTRES}</sup>")},
+        xaxis={"title": "Écart de l'IC composant au budget composant 2028 (kgCO₂e/m²)"},
+        yaxis={"title": "Nombre de projets", "rangemode": "tozero", "gridcolor": "#ececec"},
+        legend={"orientation": "h", "x": 0, "y": 1.08},
+        margin={"l": 60, "r": 20, "t": 110, "b": 60},
+    )
+
+    # 3. Chaque levier seul ---------------------------------------------------------------
+    _lignes = []
+    for _l in _NOMS_LEVIERS:
+        _seul = _projets(_df, [_l])
+        _concernes = _df.filter(pl.col(f"gain_{_l}") > 0)
+        _lignes.append({
+            "levier": _NOMS_LEVIERS[_l], "actif": _ACTIFS[_l],
+            "bâtiments concernés": _concernes.height,
+            "gain moyen des concernés (kg/m²)": round(_concernes[f"gain_{_l}"].mean(), 1) if _concernes.height else 0.0,
+            "indice avec ce levier seul (%)": round(_indice(_seul), 1),
+            "baisse de l'indice (points)": round(_indice_avant - _indice(_seul), 1),
+        })
+    _tableau = pl.DataFrame(_lignes)
+
+    _chiffres = mo.hstack([
+        mo.stat(value=f"{_indice_avant:.0f} %", label="Indice de difficulté avant", caption=f"{_avant.height} projets"),
+        mo.stat(value=f"{_indice_apres:.0f} %", label="Indice après les leviers actifs",
+                caption=f"{_indice_apres - _indice_avant:+.1f} points"),
+        mo.stat(value=f"{100 * (_apres['classe'] == CLASSES_2028[0]).mean():.0f} %" if _apres.height else "–",
+                label="Projets conformes 2028 après", caption=f"avant : {100 * (_avant['classe'] == CLASSES_2028[0]).mean():.0f} %"
+                if _avant.height else ""),
+    ], justify="start", gap=2)
+
+    mo.vstack([
+        _chiffres,
+        mo.ui.plotly(_fig),
+        mo.md("**Effet de chaque levier pris seul**"),
+        mo.ui.table(_tableau, selection=None, pagination=False),
+        mo.md("*Le budget composant 2028 de chaque bâtiment est gardé tel quel : l'effet de l'abandon des "
+              "forfaits sur la modulation du seuil (Mided) n'est pas pris en compte.*"),
+        boutons_export(_tableau, "analyse5c_effet_des_leviers"),
     ])
     return
 
