@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.96"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "09/10/2026 01:49"
+    VERSION = "0.97"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "12/10/2026 15:17"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Nouveau graphique 2 : répartition de l'impact carbone (composants, chantier, énergie, eau) par seuil RE2020 ; anciens graphiques 2 à 8 renumérotés 3 à 9 ; bouton « Download plot as JSON » ajouté à tous les graphiques (CONFIG_PLOTLY) ; extraction de ic_chantier et ic_eau"),
+        (VERSION, "Nouveau graphique 10 : 4 donuts (matériau de structure, type de plancher, remplissage de façade, générateur de chauffage), bascule « bâtiments non renseignés », couleurs fixes par catégorie. Extraction de dc_type_plancher, dc_materiau_remplissage_facade et synthese_generateur_ch"),
+        ("0.96", "Nouveau graphique 2 : répartition de l'impact carbone (composants, chantier, énergie, eau) par seuil RE2020 ; anciens graphiques 2 à 8 renumérotés 3 à 9 ; bouton « Download plot as JSON » ajouté à tous les graphiques (CONFIG_PLOTLY) ; extraction de ic_chantier et ic_eau"),
         ("0.95b", "Graphique 8 : slider « Zoom Axe Y » (350 à 2500, 1500 par défaut), zones à DH nul ou > 15000 écartées, DH max > 15000 ignoré, survol du « DHmax » (zone qui le porte)"),
         ("0.95", "Graphique 8 : dispersion du DH par zone climatique (zones traversantes / non traversantes). Nouvelles colonnes par zone : dh_zones, is_traversant_zones, dh_max_zones"),
         ("0.94", "Graphique 7 : inversion de l'ordre des graphiques « stock de carbone » et « IC composant lots 3 + 4 + 6 »"),
@@ -202,6 +203,7 @@ def liste_graphiques(mo):
         7: "Stock de carbone par type de matériau de structure et seuil RE2020",
         8: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
         9: "Dispersion du DH par zone climatique, zones traversantes et non traversantes",
+        10: "Répartition des bâtiments : structure, plancher, façade, générateur de chauffage",
     }
 
     # Configuration commune de TOUS les graphiques Plotly (barre d'outils au survol) :
@@ -576,7 +578,7 @@ def extraction_unique(
     mo.stop(not button_lancer.value)
     # ============================================================================
     # CELLULE D'EXTRACTION UNIQUE — un seul appel réseau à Turso, partagé par
-    # TOUS les graphiques (1 à 9).
+    # TOUS les graphiques (1 à 10).
     #
     # Ne dépend QUE de dropdown_usage (et du bouton). Tous les autres filtres
     # (règles de validation, min/max, surface, années, attestation, zone
@@ -620,6 +622,9 @@ def extraction_unique(
     # ic_composant et ic_energie pour la répartition de l'impact carbone (graphique 2)
     _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset", "surface_murs_rset",
                              "ic_chantier", "ic_eau"]
+    # Choix constructifs et techniques (graphique 10) : plancher, remplissage de façade
+    # (variables dc_*, peu fiables) et générateurs de chauffage (principal | appoint)
+    _COLS_CHOIX_CONSTRUCTIFS = ["dc_type_plancher", "dc_materiau_remplissage_facade", "synthese_generateur_ch"]
     # Surfaces totales des zones (table zone_open_data, une ligne par zone)
     _COLS_ZONE = ["misurf_tot", "mbsurf_tot"]
     # Colonnes "une valeur PAR ZONE" : un bâtiment a 1 à n zones, on garde toutes
@@ -680,6 +685,7 @@ def extraction_unique(
         *[f"b.{col}" for col in _COLS_BOXPLOT],
         *[f"b.{col}" for col in _COLS_ECARTS],
         *[f"b.{col}" for col in _COLS_SUPPLEMENTAIRES],
+        *[f"b.{col}" for col in _COLS_CHOIX_CONSTRUCTIFS],
         *[f"z.{col}" for col in _COLS_ZONE],
         *[f"z.{nom}_json" for nom in _COLS_ZONE_LISTES],   # listes par zone (JSON), décodées ensuite
         f"z.{_COL_ORDRE_ZONE}_json",                       # n° de zone, sert à trier les listes
@@ -3746,6 +3752,301 @@ def graphique_9(
         _agg.sort("zone_climatique", "is_traversant", descending=[False, True]),
         "graphique_9_dh_par_zone_climatique",
     )])
+    return
+
+
+@app.cell(hide_code=True)
+def param_graphique_10(mo, panneau_filtres):
+    # ============================================================================
+    # CELLULE WIDGET — paramètres propres au graphique 10 (4 donuts : matériau de
+    # structure, type de plancher, remplissage de façade, générateur de chauffage).
+    #   - bascule « bâtiments non renseignés » (rangée du haut, avec « Valider… ») :
+    #     masque « Autre » et les valeurs vides, les pourcentages sont recalculés ;
+    #     les couleurs des autres catégories ne changent pas
+    #   - nombre maximal de catégories par donut (le reste est regroupé)
+    # « Masquer les inconnus » n'est pas appliqué : tous les seuils sont comptés.
+    # ============================================================================
+
+    afficher_non_renseignes_10 = mo.ui.switch(
+        value=True, label="Afficher les statistiques avec les bâtiments non-renseignés ?",
+    )
+
+    choix_nb_categories_10 = mo.ui.slider(
+        start=2, stop=10, step=1, value=5, show_value=True,
+        label="Nombre maximal de catégories par donut (le reste : « Autres catégories »)",
+    )
+
+    mo.vstack([
+        mo.md("### Paramètres du graphique 10"),
+        panneau_filtres(
+            {"Graphique 10": choix_nb_categories_10},
+            avec_inconnus=False,
+            bascules_graphique=[afficher_non_renseignes_10],
+        ),
+    ])
+    return afficher_non_renseignes_10, choix_nb_categories_10
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_10(resume_filtres):
+    # Résumé des filtres actifs du graphique 10 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres(avec_inconnus=False)
+    return
+
+
+@app.cell(hide_code=True)
+def graphique_10(
+    CONFIG_PLOTLY,
+    GRAPHIQUES,
+    DATA_brut,
+    SOUS_TITRE_FILTRES,
+    afficher_non_renseignes_10,
+    appliquer_filtres,
+    boutons_export,
+    choix_nb_categories_10,
+    dropdown_usage,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Graphique 10 : 4 donuts, répartition (%) des bâtiments par matériau
+    # de structure, type de plancher, matériau de remplissage de façade et
+    # générateur de chauffage.
+    #
+    # Part de DATA_brut (AUCUN appel réseau ici) ; filtres temps réel communs à tous
+    # les graphiques (cellule `filtres_communs`), sauf « Masquer les inconnus ».
+    # Variables dc_* : fiabilité « mauvaise » (valeur « Autre » surreprésentée).
+    # ============================================================================
+
+    # ============================================================================
+    # PARAMÈTRES (toutes les variables au même endroit)
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+    _AFFICHER_NON_RENSEIGNES = afficher_non_renseignes_10.value
+    _NB_MAX_CATEGORIES = choix_nb_categories_10.value
+
+    # --- Libellés spéciaux -------------------------------------------------------------
+    _LIBELLE_AUTRE = "Autre"                     # valeur saisie « Autre » (dc_*)
+    _LIBELLE_NON_RENSEIGNE = "Non renseigné"     # valeur absente (NULL / vide)
+    _LIBELLE_REGROUPE = "Autres catégories"      # catégories au-delà de _NB_MAX_CATEGORIES
+    _NON_RENSEIGNES = [_LIBELLE_AUTRE, _LIBELLE_NON_RENSEIGNE]
+
+    # --- Les 4 donuts, dans l'ordre d'affichage (haut-gauche, haut-droite, bas-gauche,
+    #     bas-droite) : clé -> (titre, colonne de DATA_brut, position (colonne, ligne))
+    _DONUTS = {
+        "structure":  ("matériau de structure principal", "dc_materiau_structure", (0, 1)),
+        "plancher":   ("type de plancher", "dc_type_plancher", (1, 1)),
+        "facade":     ("matériau de remplissage de façade", "dc_materiau_remplissage_facade", (0, 0)),
+        "generateur": ("générateur de chauffage", "synthese_generateur_ch", (1, 0)),
+    }
+    _SEPARATEUR_GENERATEURS = "|"     # synthese_generateur_ch : « principal | appoint » -> on garde le principal
+
+    # --- Couleurs : FIXES par catégorie (une couleur ne change pas quand on masque
+    #     « Autre » ou qu'on change le filtre). Règles testées dans l'ordre sur le libellé
+    #     en minuscules : (mots-clés, couleur) ; sinon couleur de repli (cycle).
+    _GRIS_AUTRE, _GRIS_VIDE, _GRIS_REGROUPE = "#A6A6A6", "#D9D9D9", "#C9CED8"
+    _REGLES_COULEUR_MATERIAUX = [
+        (["chanvre", "paille", "terre crue"], "#7FB069"),            # biosourcés : vert
+        (["bois"], "#A9D18E"),                                       # bois : vert pâle
+        (["mixte"], "#5E8C6A"),                                      # mixtes : vert-gris
+        (["terre cuite", "brique"], "#C8553D"),                      # terre cuite : terracotta
+        (["parpaing", "bloc", "hourdis", "poutrelle"], "#4A6FA5"),   # béton préfabriqué : bleu moyen
+        (["béton", "beton", "dalle"], "#283246"),                    # béton : bleu nuit
+        (["acier", "métal", "metal"], "#6F86A8"),                    # acier : bleu-gris
+        (["pierre"], "#D8C3A5"),                                     # pierre : sable
+    ]
+    _REGLES_COULEUR_GENERATEURS = [                                  # palette « B » (turquoise)
+        (["air / eau"], "#0E7C86"),
+        (["air / air"], "#6CC3CC"),
+        (["poêle", "poele", "insert"], "#F2B134"),
+        (["gaz", "chaudière", "chaudiere"], "#8E5572"),
+        (["joule"], "#C44536"),
+        (["réseau", "reseau", "urbain"], "#355070"),
+        (["pac"], "#3A9CA6"),
+    ]
+    _COULEURS_REPLI = ["#B5838D", "#E9C46A", "#9C89B8", "#F4A261", "#2A9D8F"]
+
+    # --- Mise en page (pixels) ------------------------------------------------------------
+    _LARGEUR, _HAUTEUR = 1100, 1100
+    _MARGE_HAUT, _MARGE_BAS, _MARGE_GAUCHE, _MARGE_DROITE = 100, 20, 30, 30
+    _COLONNES_X = {0: (0.05, 0.45), 1: (0.55, 0.95)}              # emprise horizontale d'un donut (0-1)
+    _LIGNES_PX = {                                                 # positions (px depuis le haut de la figure)
+        1: dict(titre=125, donut=(185, 425), legende=445),         # ligne du haut
+        0: dict(titre=640, donut=(700, 940), legende=960),         # ligne du bas
+    }
+    _TROU = 0.55                      # taille du trou central (0 = camembert plein)
+    _SEUIL_LIBELLE_PCT = 2            # sous ce pourcentage, pas d'étiquette sur la part
+    _LONGUEUR_MAX_LIBELLE = 34        # libellés de légende tronqués (le survol donne le texte complet)
+    _POLICE = "Calibri, Carlito, Arial"
+
+    # ============================================================================
+    # 1. DONNÉES : filtres communs, puis une colonne « libellé propre » par donut
+    # ============================================================================
+
+    _df = appliquer_filtres(DATA_brut, filtre_inconnu=False)
+    mo.stop(_df.height == 0, mo.md("**Aucun bâtiment ne correspond aux filtres choisis.**"))
+
+    def _nettoyer(colonne):
+        """Texte propre : espaces retirés, 1re lettre en majuscule, vide -> « Non renseigné »,
+        « autre » (toute casse) -> « Autre »."""
+        _texte = pl.col(colonne).cast(pl.Utf8).str.strip_chars()
+        _texte = _texte.str.slice(0, 1).str.to_uppercase() + _texte.str.slice(1)
+        return (
+            pl.when(_texte.is_null() | (_texte == ""))
+            .then(pl.lit(_LIBELLE_NON_RENSEIGNE))
+            .when(_texte.str.to_lowercase() == _LIBELLE_AUTRE.lower())
+            .then(pl.lit(_LIBELLE_AUTRE))
+            .otherwise(_texte)
+        )
+
+    _df = _df.with_columns(
+        _nettoyer("dc_materiau_structure").alias("structure"),
+        _nettoyer("dc_type_plancher").alias("plancher"),
+        _nettoyer("dc_materiau_remplissage_facade").alias("facade"),
+        # générateur : on ne garde que le principal (avant le séparateur), espaces autour de « / » normalisés
+        pl.col("synthese_generateur_ch").cast(pl.Utf8).str.split(_SEPARATEUR_GENERATEURS).list.first()
+        .str.replace_all(r"\s*/\s*", " / ").alias("_generateur_principal"),
+    ).with_columns(_nettoyer("_generateur_principal").alias("generateur"))
+
+    # ============================================================================
+    # 2. COULEUR D'UNE CATÉGORIE
+    # ============================================================================
+
+    def _couleur(libelle, regles, repli):
+        if libelle == _LIBELLE_AUTRE:
+            return _GRIS_AUTRE
+        if libelle == _LIBELLE_NON_RENSEIGNE:
+            return _GRIS_VIDE
+        if libelle == _LIBELLE_REGROUPE:
+            return _GRIS_REGROUPE
+        _minuscules = libelle.lower()
+        for _mots, _couleur_regle in regles:
+            if any(_mot in _minuscules for _mot in _mots):
+                return _couleur_regle
+        return repli.setdefault(libelle, _COULEURS_REPLI[len(repli) % len(_COULEURS_REPLI)])
+
+    def _tronque(libelle):
+        if len(libelle) <= _LONGUEUR_MAX_LIBELLE:
+            return libelle
+        return libelle[: _LONGUEUR_MAX_LIBELLE - 1] + "…"
+
+    # ============================================================================
+    # 3. FIGURE : un donut (go.Pie) par variable
+    # ============================================================================
+
+    _hauteur_trace = _HAUTEUR - _MARGE_HAUT - _MARGE_BAS
+    _y_paper = lambda px: 1 - (px - _MARGE_HAUT) / _hauteur_trace     # px depuis le haut -> coordonnée « paper »
+
+    _fig = go.Figure()
+    _annotations = []
+    _legendes = {}
+    _export = []
+
+    for _rang, (_cle, (_titre, _colonne_source, (_cx, _cy))) in enumerate(_DONUTS.items()):
+        _x0, _x1 = _COLONNES_X[_cx]
+        _ligne = _LIGNES_PX[_cy]
+        _y_bas, _y_haut = _y_paper(_ligne["donut"][1]), _y_paper(_ligne["donut"][0])
+        _x_centre = (_x0 + _x1) / 2
+        _nom_legende = "legend" if _rang == 0 else f"legend{_rang + 1}"
+        _regles = _REGLES_COULEUR_GENERATEURS if _cle == "generateur" else _REGLES_COULEUR_MATERIAUX
+
+        # Comptage par catégorie ; masquage éventuel de « Autre » / « Non renseigné »
+        _comptes = (
+            _df.group_by(_cle).len().rename({_cle: "categorie", "len": "n"})
+            .sort(["n", "categorie"], descending=[True, False])
+        )
+        if not _AFFICHER_NON_RENSEIGNES:
+            _comptes = _comptes.filter(~pl.col("categorie").is_in(_NON_RENSEIGNES))
+
+        # Catégories renseignées (les plus fréquentes), regroupement du reste, puis
+        # « Autre » et « Non renseigné » en fin de donut
+        _renseignees = _comptes.filter(~pl.col("categorie").is_in(_NON_RENSEIGNES))
+        _gardees = _renseignees.head(_NB_MAX_CATEGORIES)
+        _reste = _renseignees.tail(max(_renseignees.height - _NB_MAX_CATEGORIES, 0))
+        _parts = [(_l["categorie"], _l["n"]) for _l in _gardees.iter_rows(named=True)]
+        if _reste.height:
+            _parts.append((_LIBELLE_REGROUPE, _reste["n"].sum()))
+        for _l in _comptes.filter(pl.col("categorie").is_in(_NON_RENSEIGNES)).iter_rows(named=True):
+            _parts.append((_l["categorie"], _l["n"]))
+
+        # Titre du donut
+        _annotations.append(dict(
+            x=_x_centre, y=_y_paper(_ligne["titre"]), xref="paper", yref="paper",
+            xanchor="center", yanchor="top", showarrow=False, font=dict(size=15),
+            text=f"<b>Répartition par {_titre}</b><br>"
+                 "<i><span style='font-size:12px'>en pourcentage du nombre de bâtiments total</span></i>",
+        ))
+
+        if not _parts:
+            _annotations.append(dict(
+                x=_x_centre, y=(_y_bas + _y_haut) / 2, xref="paper", yref="paper",
+                xanchor="center", yanchor="middle", showarrow=False, font=dict(size=14, color="#888"),
+                text="Aucun bâtiment renseigné",
+            ))
+            continue
+
+        _total = sum(_n for _, _n in _parts)
+        _repli = {}
+        _couleurs = [_couleur(_c, _regles, _repli) for _c, _ in _parts]
+
+        _fig.add_trace(go.Pie(
+            # Plotly confond les parts de même libellé entre deux donuts (légende) : un
+            # suffixe invisible (espaces de largeur nulle) les distingue ; le vrai libellé
+            # est dans customdata (survol).
+            labels=[_tronque(_c) + "​" * _rang for _c, _ in _parts],
+            values=[_n for _, _n in _parts],
+            customdata=[[_c] for _c, _ in _parts],
+            hole=_TROU, sort=False, direction="clockwise", rotation=0,
+            marker=dict(colors=_couleurs, line=dict(color="white", width=2)),
+            text=[f"{100 * _n / _total:.0f}%" if 100 * _n / _total >= _SEUIL_LIBELLE_PCT else "" for _, _n in _parts],
+            textinfo="text", textposition="outside", textfont=dict(size=14),
+            domain=dict(x=[_x0, _x1], y=[_y_bas, _y_haut]),
+            legend=_nom_legende,
+            hovertemplate="<b>%{customdata[0]}</b><br>%{value} bâtiments (%{percent})<extra></extra>",
+        ))
+        # Total au centre du donut
+        _annotations.append(dict(
+            x=_x_centre, y=(_y_bas + _y_haut) / 2, xref="paper", yref="paper",
+            xanchor="center", yanchor="middle", showarrow=False, font=dict(size=16),
+            text=f"<b>n = {_total}</b><br><span style='font-size:11px'>bâtiments</span>",
+        ))
+        _legendes[_nom_legende] = dict(
+            orientation="v", x=_x_centre, xanchor="center", y=_y_paper(_ligne["legende"]), yanchor="top",
+            font=dict(size=12), tracegroupgap=0,
+        )
+        _export.append(pl.DataFrame({
+            "donut": [_titre] * len(_parts),
+            "categorie": [_c for _c, _ in _parts],
+            "nb_batiments": [_n for _, _n in _parts],
+            "pourcentage": [round(100 * _n / _total, 1) for _, _n in _parts],
+            "couleur": _couleurs,
+        }))
+
+    mo.stop(not _fig.data, mo.md("**Aucun bâtiment renseigné pour ces variables.**"))
+
+    _non_renseignes_txt = "bâtiments non renseignés inclus" if _AFFICHER_NON_RENSEIGNES else "bâtiments non renseignés exclus"
+    _fig.update_layout(
+        template="plotly_white",
+        width=_LARGEUR,
+        height=_HAUTEUR,
+        annotations=_annotations,
+        margin=dict(t=_MARGE_HAUT, b=_MARGE_BAS, l=_MARGE_GAUCHE, r=_MARGE_DROITE),
+        font=dict(family=_POLICE),
+        title=dict(
+            text=f"<b>Graphique 10 — {GRAPHIQUES[10]} — {_USAGE}</b><br>"
+                 f"<sup>{SOUS_TITRE_FILTRES} — {_non_renseignes_txt}</sup>",
+            font=dict(size=18),
+        ),
+        **_legendes,
+    )
+
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
+
+    # Export : les données TRACÉES (donut, catégorie, nombre de bâtiments, %, couleur)
+    mo.vstack([_graphique, boutons_export(pl.concat(_export), "graphique_10_repartition_choix_constructifs")])
     return
 
 
