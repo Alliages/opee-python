@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.97"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "12/10/2026 15:17"
+    VERSION = "0.98"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "12/10/2026 18:32"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Nouveau graphique 10 : 4 donuts (matériau de structure, type de plancher, remplissage de façade, générateur de chauffage), bascule « bâtiments non renseignés », couleurs fixes par catégorie. Extraction de dc_type_plancher, dc_materiau_remplissage_facade et synthese_generateur_ch"),
+        (VERSION, "Graphique 10 : bascule renommée « Masquer « Autre » / non renseigné » (désactivée par défaut) et placée dans un encadré visible sous « Valider… » ; Polars : explode(empty_as_null=True) explicite (fin de l'avertissement de dépréciation)"),
+        ("0.97", "Nouveau graphique 10 : 4 donuts (matériau de structure, type de plancher, remplissage de façade, générateur de chauffage), bascule « bâtiments non renseignés », couleurs fixes par catégorie. Extraction de dc_type_plancher, dc_materiau_remplissage_facade et synthese_generateur_ch"),
         ("0.96", "Nouveau graphique 2 : répartition de l'impact carbone (composants, chantier, énergie, eau) par seuil RE2020 ; anciens graphiques 2 à 8 renumérotés 3 à 9 ; bouton « Download plot as JSON » ajouté à tous les graphiques (CONFIG_PLOTLY) ; extraction de ic_chantier et ic_eau"),
         ("0.95b", "Graphique 8 : slider « Zoom Axe Y » (350 à 2500, 1500 par défaut), zones à DH nul ou > 15000 écartées, DH max > 15000 ignoré, survol du « DHmax » (zone qui le porte)"),
         ("0.95", "Graphique 8 : dispersion du DH par zone climatique (zones traversantes / non traversantes). Nouvelles colonnes par zone : dh_zones, is_traversant_zones, dh_max_zones"),
@@ -807,7 +808,7 @@ def extraction_unique(
     _lignes_zone = (
         _df.select("ID", *_a_trier)
         .filter(pl.col("_ordre_zone").is_not_null())
-        .explode(_a_trier)                                  # une ligne par zone
+        .explode(_a_trier, empty_as_null=True)              # une ligne par zone (liste vide -> une ligne null, comportement actuel de Polars)
         .sort(["ID", "_ordre_zone"], nulls_last=True)       # tri par n° de zone
         .group_by("ID", maintain_order=True)
         .agg([pl.col(_nom) for _nom in _TYPES_LISTES_ZONE])  # on regroupe en listes
@@ -961,7 +962,7 @@ def panneau_filtres_def(
     _LIBELLE_BATIMENT = "Bâtiment"
 
 
-    def panneau_filtres(parametres_graphique=None, *, avec_materiau=True, avec_inconnus=True, bascules_graphique=()):
+    def panneau_filtres(parametres_graphique=None, *, avec_materiau=True, avec_inconnus=True, bascules_graphique=(), bascule_en_evidence=None):
         """Construit le panneau de filtres d'un graphique.
 
         - parametres_graphique : dict {libellé de l'accordéon: contenu} pour les paramètres
@@ -970,6 +971,8 @@ def panneau_filtres_def(
         - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
         - bascules_graphique : switchs propres au graphique, ajoutés dans la rangée du haut
           (à côté de « Valider… » et « Masquer les inconnus »).
+        - bascule_en_evidence : un switch propre au graphique, affiché dans un encadré SOUS la
+          rangée du haut (plus visible que les bascules de la rangée).
         """
         # 1. Qualité des données : toujours visible, en haut
         _qualite = mo.hstack(
@@ -996,6 +999,7 @@ def panneau_filtres_def(
 
         return mo.vstack([
             _qualite,
+            *([mo.callout(bascule_en_evidence, kind="info")] if bascule_en_evidence is not None else []),
             mo.hstack(_accordeons, justify="start", align="start", wrap=True, widths="equal"),
         ])
 
@@ -3569,7 +3573,7 @@ def graphique_9(
     _zones = (
         _df.filter(pl.col("dh_zones").is_not_null() & pl.col("zone_climatique").is_not_null())
         .select("ID", "zone_climatique", "dh_zones", "is_traversant_zones", "dh_max_zones")
-        .explode("dh_zones", "is_traversant_zones", "dh_max_zones")
+        .explode("dh_zones", "is_traversant_zones", "dh_max_zones", empty_as_null=True)
         .rename({"dh_zones": "dh_zone", "is_traversant_zones": "is_traversant", "dh_max_zones": "dh_max_zone"})
         .with_row_index("rang_global")
     )
@@ -3760,15 +3764,15 @@ def param_graphique_10(mo, panneau_filtres):
     # ============================================================================
     # CELLULE WIDGET — paramètres propres au graphique 10 (4 donuts : matériau de
     # structure, type de plancher, remplissage de façade, générateur de chauffage).
-    #   - bascule « bâtiments non renseignés » (rangée du haut, avec « Valider… ») :
+    #   - bascule « Masquer « Autre » / non renseigné » (encadré visible sous « Valider… ») :
     #     masque « Autre » et les valeurs vides, les pourcentages sont recalculés ;
     #     les couleurs des autres catégories ne changent pas
     #   - nombre maximal de catégories par donut (le reste est regroupé)
     # « Masquer les inconnus » n'est pas appliqué : tous les seuils sont comptés.
     # ============================================================================
 
-    afficher_non_renseignes_10 = mo.ui.switch(
-        value=True, label="Afficher les statistiques avec les bâtiments non-renseignés ?",
+    masquer_non_renseignes_10 = mo.ui.switch(
+        value=False, label="**Masquer « Autre » / non renseigné**",
     )
 
     choix_nb_categories_10 = mo.ui.slider(
@@ -3781,10 +3785,10 @@ def param_graphique_10(mo, panneau_filtres):
         panneau_filtres(
             {"Graphique 10": choix_nb_categories_10},
             avec_inconnus=False,
-            bascules_graphique=[afficher_non_renseignes_10],
+            bascule_en_evidence=masquer_non_renseignes_10,     # encadré sous « Valider… », bien visible
         ),
     ])
-    return afficher_non_renseignes_10, choix_nb_categories_10
+    return choix_nb_categories_10, masquer_non_renseignes_10
 
 
 @app.cell(hide_code=True)
@@ -3801,12 +3805,12 @@ def graphique_10(
     GRAPHIQUES,
     DATA_brut,
     SOUS_TITRE_FILTRES,
-    afficher_non_renseignes_10,
     appliquer_filtres,
     boutons_export,
     choix_nb_categories_10,
     dropdown_usage,
     go,
+    masquer_non_renseignes_10,
     mo,
     pl,
 ):
@@ -3825,7 +3829,7 @@ def graphique_10(
     # ============================================================================
 
     _USAGE = dropdown_usage.value
-    _AFFICHER_NON_RENSEIGNES = afficher_non_renseignes_10.value
+    _AFFICHER_NON_RENSEIGNES = not masquer_non_renseignes_10.value
     _NB_MAX_CATEGORIES = choix_nb_categories_10.value
 
     # --- Libellés spéciaux -------------------------------------------------------------
