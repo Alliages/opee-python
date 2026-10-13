@@ -36,11 +36,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.98"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "12/10/2026 18:32"
+    VERSION = "0.99"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "13/10/2026 18:41"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 10 : bascule renommée « Masquer « Autre » / non renseigné » (désactivée par défaut) et placée dans un encadré visible sous « Valider… » ; Polars : explode(empty_as_null=True) explicite (fin de l'avertissement de dépréciation)"),
+        (VERSION, "Impression en PDF depuis Chrome (Ctrl+P) : cellule `style_impression` (@media print : A4 portrait, couleurs conservées, barre Plotly masquée, graphiques non coupés) et cellules `saut_page_N` (nouvelle page avant chaque graphique 2 à 10)"),
+        ("0.98", "Graphique 10 : bascule renommée « Masquer « Autre » / non renseigné » (désactivée par défaut) et placée dans un encadré visible sous « Valider… » ; Polars : explode(empty_as_null=True) explicite (fin de l'avertissement de dépréciation)"),
         ("0.97", "Nouveau graphique 10 : 4 donuts (matériau de structure, type de plancher, remplissage de façade, générateur de chauffage), bascule « bâtiments non renseignés », couleurs fixes par catégorie. Extraction de dc_type_plancher, dc_materiau_remplissage_facade et synthese_generateur_ch"),
         ("0.96", "Nouveau graphique 2 : répartition de l'impact carbone (composants, chantier, énergie, eau) par seuil RE2020 ; anciens graphiques 2 à 8 renumérotés 3 à 9 ; bouton « Download plot as JSON » ajouté à tous les graphiques (CONFIG_PLOTLY) ; extraction de ic_chantier et ic_eau"),
         ("0.95b", "Graphique 8 : slider « Zoom Axe Y » (350 à 2500, 1500 par défaut), zones à DH nul ou > 15000 écartées, DH max > 15000 ignoré, survol du « DHmax » (zone qui le porte)"),
@@ -182,6 +183,59 @@ def entete_et_imports():
 
     mo.vstack([mo.Html(_visuel + _version + _cartes + _rangee_liens), _historique])
     return go, mo, pl, px
+
+
+@app.cell(hide_code=True)
+def style_impression(mo):
+    # ============================================================================
+    # STYLE D'IMPRESSION (Chrome : Ctrl+P / Cmd+P, puis « Enregistrer au format PDF »)
+    #
+    # Ces règles ne s'appliquent QU'À L'IMPRESSION : l'affichage écran est inchangé.
+    # Dans la boîte d'impression de Chrome (« Plus de paramètres ») :
+    #   - cocher « Graphiques d'arrière-plan » (sinon les couleurs de fond disparaissent)
+    #   - décocher « En-têtes et pieds de page » (URL et date sur chaque page)
+    #   - marges « Par défaut », échelle 100 % (90 % si un graphique déborde)
+    # Pour masquer le code : imprimer en mode application (vue « App » de molab).
+    # Les sauts de page sont posés par les cellules `saut_page_N` (avant chaque graphique).
+    # ============================================================================
+
+    # --- Réglages -----------------------------------------------------------------
+    _FORMAT_PAPIER = "A4 portrait"   # "A4 portrait" ou "A4 landscape" (paysage)
+    _MARGE_PAGE = "12mm"             # marge de la feuille
+    _HAUTEUR_MAX_GRAPHIQUE = "95vh"  # un graphique tient sur une page
+
+    # --- Règles CSS (doubles accolades : f-string) ----------------------------------
+    _CSS = f"""
+    @media print {{
+        /* Format de feuille et marges */
+        @page {{ size: {_FORMAT_PAPIER}; margin: {_MARGE_PAGE}; }}
+
+        /* Garder les couleurs des graphiques et des encadrés */
+        * {{ -webkit-print-color-adjust: exact !important;
+             print-color-adjust: exact !important; }}
+
+        /* Page entière : pas de défilement ni de hauteur figée,
+           sinon Chrome n'imprime que la première page */
+        html, body, #root, #app {{
+            height: auto !important; overflow: visible !important;
+        }}
+
+        /* Masquer la barre d'outils Plotly (zoom, téléchargement...) */
+        .modebar-container {{ display: none !important; }}
+
+        /* Un graphique ne doit pas être coupé entre deux pages */
+        .js-plotly-plot, .plotly {{
+            break-inside: avoid; page-break-inside: avoid;
+            max-height: {_HAUTEUR_MAX_GRAPHIQUE};
+        }}
+
+        /* Saut de page forcé (cellules `saut_page_N`) */
+        .saut-page {{ break-before: page; page-break-before: always; height: 0; }}
+    }}
+    """
+
+    mo.Html(f"<style>{_CSS}</style>")
+    return
 
 
 @app.cell(hide_code=True)
@@ -1471,6 +1525,14 @@ def filtres_communs(
 
 
 @app.cell(hide_code=True)
+def saut_page_2(mo):
+    # Saut de page à l'impression avant le graphique 2 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_2(mo, panneau_filtres):
     # ============================================================================
     # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 2.
@@ -1753,6 +1815,14 @@ def graphique_2(
 
 
 @app.cell(hide_code=True)
+def saut_page_3(mo):
+    # Saut de page à l'impression avant le graphique 3 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_3(mo, panneau_filtres):
     # Paramètre propre au graphique 3 (le seul qui utilise les 13 lots)
     valeur_exclusion_lots = mo.ui.range_slider(start=0, stop=500, step=10, value=[0, 300], label="Un lot est compris entre :", show_value=True)
@@ -1998,6 +2068,14 @@ def graphique_3(
 
 
 @app.cell(hide_code=True)
+def saut_page_4(mo):
+    # Saut de page à l'impression avant le graphique 4 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_4(mo, panneau_filtres):
     # ============================================================================
     # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 4.
@@ -2209,6 +2287,14 @@ def graphique_4(
 
 
 @app.cell(hide_code=True)
+def saut_page_5(mo):
+    # Saut de page à l'impression avant le graphique 5 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_5(mo, panneau_filtres):
     # ============================================================================
     # CELLULE D'AFFICHAGE — paramètres (filtres) du graphique 5.
@@ -2396,6 +2482,14 @@ def graphique_5(
     # Export : les données TRACÉES (Q1 / médiane / Q3 de chaque variable, par seuil)
     _export = _agg.sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99))
     mo.vstack([_graphique, boutons_export(_export, "graphique_5_quartiles_fiches_par_seuil")])
+    return
+
+
+@app.cell(hide_code=True)
+def saut_page_6(mo):
+    # Saut de page à l'impression avant le graphique 6 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
     return
 
 
@@ -2772,6 +2866,14 @@ def graphique_6(
 
 
 @app.cell(hide_code=True)
+def saut_page_7(mo):
+    # Saut de page à l'impression avant le graphique 7 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_7(mo, panneau_filtres):
     # ============================================================================
     # CELLULE WIDGET — paramètres propres au graphique 7 (stock C) :
@@ -3009,6 +3111,14 @@ def graphique_7(
     # Export : statistiques de chaque boîte (toutes les combinaisons, avec un
     # indicateur `boite_affichee` pour celles masquées faute d'effectif)
     mo.vstack([_graphique, boutons_export(_agg, "graphique_7_stock_c_par_materiau_et_seuil")])
+    return
+
+
+@app.cell(hide_code=True)
+def saut_page_8(mo):
+    # Saut de page à l'impression avant le graphique 8 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
     return
 
 
@@ -3463,6 +3573,14 @@ def graphique_8_categoriel(
 
 
 @app.cell(hide_code=True)
+def saut_page_9(mo):
+    # Saut de page à l'impression avant le graphique 9 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_9(mo, panneau_filtres):
     # ============================================================================
     # CELLULE WIDGET — paramètre propre au graphique 9 : zoom sur l'axe Y (borne
@@ -3756,6 +3874,14 @@ def graphique_9(
         _agg.sort("zone_climatique", "is_traversant", descending=[False, True]),
         "graphique_9_dh_par_zone_climatique",
     )])
+    return
+
+
+@app.cell(hide_code=True)
+def saut_page_10(mo):
+    # Saut de page à l'impression avant le graphique 10 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
     return
 
 
