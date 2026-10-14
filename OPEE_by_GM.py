@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99b"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "14/10/2026 16:30"
+    VERSION = "0.99c"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "14/10/2026 16:45"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Bouton « Imprimer / PDF » (anywidget) : sur molab le notebook est affiché dans un cadre et Ctrl+P n'imprimait que la 1re page ; le bouton imprime le notebook entier, réduit les graphiques à la largeur de la page (graphiques 3 et 10 coupés sinon) et masque la barre Plotly (dans le shadow DOM, hors de portée de la CSS de la page). Dépendance anywidget ajoutée"),
+        (VERSION, "Graphique 10 : pourcentage affiché à côté de chaque part de 3 % ou plus (une décimale), nom de la catégorie ajouté au-dessus de 10 % (nom court, sans parenthèse) ; nouvelle palette du chauffage (chaudière aubergine, effet Joule ambre, réseau de chaleur lavande, poêle brun) pour la distinguer des 3 autres donuts"),
+        ("0.99b", "Bouton « Imprimer / PDF » (anywidget) : sur molab le notebook est affiché dans un cadre et Ctrl+P n'imprimait que la 1re page ; le bouton imprime le notebook entier, réduit les graphiques à la largeur de la page (graphiques 3 et 10 coupés sinon) et masque la barre Plotly (dans le shadow DOM, hors de portée de la CSS de la page). Dépendance anywidget ajoutée"),
         ("0.99", "Impression en PDF depuis Chrome (Ctrl+P) : cellule `style_impression` (@media print : A4 portrait, couleurs conservées, barre Plotly masquée, graphiques non coupés) et cellules `saut_page_N` (nouvelle page avant chaque graphique 2 à 10)"),
         ("0.98", "Graphique 10 : bascule renommée « Masquer « Autre » / non renseigné » (désactivée par défaut) et placée dans un encadré visible sous « Valider… » ; Polars : explode(empty_as_null=True) explicite (fin de l'avertissement de dépréciation)"),
         ("0.97", "Nouveau graphique 10 : 4 donuts (matériau de structure, type de plancher, remplissage de façade, générateur de chauffage), bascule « bâtiments non renseignés », couleurs fixes par catégorie. Extraction de dc_type_plancher, dc_materiau_remplissage_facade et synthese_generateur_ch"),
@@ -4083,14 +4084,14 @@ def graphique_10(
         (["acier", "métal", "metal"], "#6F86A8"),                    # acier : bleu-gris
         (["pierre"], "#D8C3A5"),                                     # pierre : sable
     ]
-    _REGLES_COULEUR_GENERATEURS = [                                  # palette « B » (turquoise)
-        (["air / eau"], "#0E7C86"),
-        (["air / air"], "#6CC3CC"),
-        (["poêle", "poele", "insert"], "#F2B134"),
-        (["gaz", "chaudière", "chaudiere"], "#8E5572"),
-        (["joule"], "#C44536"),
-        (["réseau", "reseau", "urbain"], "#355070"),
-        (["pac"], "#3A9CA6"),
+    _REGLES_COULEUR_GENERATEURS = [                                  # palette distincte des 3 autres donuts
+        (["air / eau"], "#0E7C86"),                                  # PAC air / eau : turquoise
+        (["air / air"], "#7CCFC8"),                                  # PAC air / air : turquoise clair
+        (["poêle", "poele", "insert"], "#9A6B3F"),                   # poêle, insert : brun
+        (["gaz", "chaudière", "chaudiere"], "#4A1F3D"),              # chaudière gaz : aubergine foncé
+        (["joule"], "#E3A72F"),                                      # effet Joule : ambre
+        (["réseau", "reseau", "urbain"], "#9B8AC4"),                 # réseau de chaleur : lavande
+        (["pac"], "#3A9CA6"),                                        # autres PAC : turquoise moyen
     ]
     _COULEURS_REPLI = ["#B5838D", "#E9C46A", "#9C89B8", "#F4A261", "#2A9D8F"]
 
@@ -4103,7 +4104,9 @@ def graphique_10(
         0: dict(titre=640, donut=(700, 940), legende=960),         # ligne du bas
     }
     _TROU = 0.55                      # taille du trou central (0 = camembert plein)
-    _SEUIL_LIBELLE_PCT = 2            # sous ce pourcentage, pas d'étiquette sur la part
+    _SEUIL_PCT = 3                    # à partir de ce pourcentage, le % est affiché à côté de la part
+    _SEUIL_NOM_PCT = 10               # au-dessus de ce pourcentage, le nom de la catégorie s'ajoute au %
+    _LARGEUR_NOM_ETIQUETTE = 16       # nombre de caractères par ligne du nom (retour à la ligne au-delà)
     _LONGUEUR_MAX_LIBELLE = 34        # libellés de légende tronqués (le survol donne le texte complet)
     _POLICE = "Calibri, Carlito, Arial"
 
@@ -4157,6 +4160,28 @@ def graphique_10(
         if len(libelle) <= _LONGUEUR_MAX_LIBELLE:
             return libelle
         return libelle[: _LONGUEUR_MAX_LIBELLE - 1] + "…"
+
+    def _etiquette(libelle, pourcentage):
+        """Texte posé à côté d'une part du donut :
+        - sous _SEUIL_PCT : rien (la légende et le survol donnent la valeur) ;
+        - de _SEUIL_PCT à _SEUIL_NOM_PCT : le pourcentage seul ;
+        - au-dessus de _SEUIL_NOM_PCT : le nom court (parenthèse retirée, sur plusieurs
+          lignes) puis le pourcentage."""
+        if pourcentage < _SEUIL_PCT:
+            return ""
+        _pct_txt = f"{pourcentage:.1f}".replace(".", ",") + " %"
+        if pourcentage <= _SEUIL_NOM_PCT:
+            return _pct_txt
+        _nom = libelle.split("(")[0].strip()          # « Bloc de béton (parpaing...) » -> « Bloc de béton »
+        _lignes, _ligne = [], ""
+        for _mot in _nom.split():
+            if _ligne and len(_ligne) + 1 + len(_mot) > _LARGEUR_NOM_ETIQUETTE:
+                _lignes.append(_ligne)
+                _ligne = _mot
+            else:
+                _ligne = f"{_ligne} {_mot}".strip()
+        _lignes.append(_ligne)
+        return "<br>".join(_lignes + [_pct_txt])
 
     # ============================================================================
     # 3. FIGURE : un donut (go.Pie) par variable
@@ -4226,7 +4251,7 @@ def graphique_10(
             customdata=[[_c] for _c, _ in _parts],
             hole=_TROU, sort=False, direction="clockwise", rotation=0,
             marker=dict(colors=_couleurs, line=dict(color="white", width=2)),
-            text=[f"{100 * _n / _total:.0f}%" if 100 * _n / _total >= _SEUIL_LIBELLE_PCT else "" for _, _n in _parts],
+            text=[_etiquette(_c, 100 * _n / _total) for _c, _n in _parts],
             textinfo="text", textposition="outside", textfont=dict(size=14),
             domain=dict(x=[_x0, _x1], y=[_y_bas, _y_haut]),
             legend=_nom_legende,
