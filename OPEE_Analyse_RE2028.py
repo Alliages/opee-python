@@ -1,6 +1,7 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
+#     "anywidget",
 #     "libsql-experimental==0.0.55",
 #     "plotly",
 #     "polars",
@@ -37,11 +38,15 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.57"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "12/10/2026 03:40"
+    VERSION = "0.58"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "14/10/2026 17:20"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Analyse5 : simulateur (forfaits 8.1 / lot 10 au forfait -> médiane du calcul détaillé, "
+        (VERSION, "Impression PDF (copie de OPEE_by_GM v0.99c) : bouton « Imprimer / PDF » (anywidget, "
+                  "notebook entier sur molab, graphiques réduits à la page, barre Plotly masquée), règles "
+                  "@media print (A4 portrait, couleurs conservées) et sauts de page avant le contrôle du socle "
+                  "et chaque analyse ; dépendance anywidget ajoutée"),
+        ("0.57", "Analyse5 : simulateur (forfaits 8.1 / lot 10 au forfait -> médiane du calcul détaillé, "
                   "régression compacité + vitrage, curseurs de cible, classes et indice avant / après) ; "
                   "exclusion permanente des bâtiments aux lots incohérents ; colonne compacité dans le socle"),
         ("0.56", "Analyse1 : choix de la vue « Global » ou « Par année » (une tuile et un petit "
@@ -203,6 +208,154 @@ def entete_et_imports():
 
     mo.vstack([mo.Html(_visuel + _version + _cartes + _rangee_liens), _historique])
     return go, mo, pl, px
+
+
+@app.cell(hide_code=True)
+def style_impression(mo):
+    # ============================================================================
+    # IMPRESSION PDF : bouton « Imprimer / PDF » + règles @media print
+    # (COPIE DE OPEE_by_GM v0.99c)
+    #
+    # UTILISER LE BOUTON (pas Ctrl+P) sur molab : le notebook y est affiché dans
+    # un cadre (iframe) sous le bandeau de molab ; Ctrl+P imprime la page molab,
+    # où le cadre n'occupe qu'une hauteur d'écran (=> 1 seule page imprimée).
+    # Le bouton appelle window.print() DEPUIS le cadre : tout le notebook sort.
+    #
+    # Ce que fait le bouton, juste avant d'ouvrir la boîte d'impression :
+    #   1. réduit chaque graphique (zoom CSS) pour qu'il tienne dans la page
+    #      (un graphique peut être plus large qu'une page A4) ;
+    #   2. masque la barre d'outils Plotly ;
+    #   3. après l'impression (événement « afterprint »), rétablit l'affichage.
+    # Les graphiques sont dans un « shadow DOM » (élément <marimo-plotly>) : la CSS
+    # de la page ne les atteint pas, d'où ce passage par JavaScript.
+    # Le bouton est un anywidget : marimo retire les `onclick` du HTML simple.
+    #
+    # Dans la boîte d'impression de Chrome (« Plus de paramètres ») :
+    #   - cocher « Graphiques d'arrière-plan » (sinon les couleurs de fond disparaissent)
+    #   - décocher « En-têtes et pieds de page » (URL et date sur chaque page)
+    # Pour masquer le code : imprimer en mode application (mode « run » de molab).
+    # Les sauts de page sont posés par les cellules `saut_page_*` (avant le contrôle
+    # du socle et avant chaque analyse).
+    # ============================================================================
+
+    # --- Réglages -----------------------------------------------------------------
+    _FORMAT_PAPIER = "A4 portrait"   # "A4 portrait" ou "A4 landscape" (paysage)
+    _MARGE_PAGE = "12mm"             # marge de la feuille
+    # Taille maximale d'un graphique imprimé, en pixels CSS (A4 portrait, marges
+    # 12 mm : zone utile ≈ 700 x 1030 px ; on garde de la place pour les filtres).
+    # En paysage : environ 1000 x 650.
+    _LARGEUR_MAX_GRAPHIQUE_PX = 680
+    _HAUTEUR_MAX_GRAPHIQUE_PX = 900
+    _LIBELLE_BOUTON = "🖨 Imprimer / PDF"
+    _AIDE_BOUTON = ("Imprime le notebook entier : attendre que tous les graphiques soient affichés, "
+                    "puis choisir « Enregistrer au format PDF ». Dans « Plus de paramètres » : "
+                    "cocher « Graphiques d'arrière-plan », décocher « En-têtes et pieds de page ».")
+
+    # --- Règles CSS de la page (doubles accolades : f-string) ----------------------
+    _CSS = f"""
+    @media print {{
+        /* Format de feuille et marges */
+        @page {{ size: {_FORMAT_PAPIER}; margin: {_MARGE_PAGE}; }}
+
+        /* Garder les couleurs des graphiques et des encadrés */
+        * {{ -webkit-print-color-adjust: exact !important;
+             print-color-adjust: exact !important; }}
+
+        /* Page entière : pas de défilement ni de hauteur figée */
+        html, body, #root, #app {{
+            height: auto !important; overflow: visible !important;
+        }}
+
+        /* Un graphique (élément marimo qui contient le shadow DOM Plotly)
+           ne doit pas être coupé entre deux pages */
+        marimo-ui-element:has(marimo-plotly) {{
+            display: block; break-inside: avoid; page-break-inside: avoid;
+        }}
+
+        /* Le bouton et son aide ne sont pas imprimés */
+        .pas-imprime {{ display: none !important; }}
+
+        /* Saut de page forcé (cellules `saut_page_N`) */
+        .saut-page {{ break-before: page; page-break-before: always; height: 0; }}
+    }}
+    """
+
+    # --- Bouton « Imprimer / PDF » (anywidget : vrai JavaScript dans la page) -------
+    import anywidget as _anywidget
+
+    _JS_BOUTON = """
+    const LARGEUR_MAX = __LARGEUR__;   // px CSS, cf. réglages Python
+    const HAUTEUR_MAX = __HAUTEUR__;
+
+    // Tous les graphiques Plotly, y compris dans les shadow DOM de marimo
+    function graphiques(racine, liste = []) {
+      racine.querySelectorAll(".js-plotly-plot").forEach(g => liste.push(g));
+      racine.querySelectorAll("*").forEach(n => { if (n.shadowRoot) graphiques(n.shadowRoot, liste); });
+      return liste;
+    }
+
+    function preparer() {
+      const modifs = [];
+      for (const g of graphiques(document)) {
+        const racine = g.getRootNode();              // shadow root du graphique
+        const hote = racine.host;                    // <marimo-plotly>
+        const bloc = (hote && hote.closest("marimo-ui-element")) || g;
+        // 1. masquer la barre Plotly (style injecté dans le shadow DOM)
+        const style = document.createElement("style");
+        style.textContent = ".modebar-container { display: none !important; }";
+        (racine.host ? racine : document.head).appendChild(style);
+        // 2. réduire le graphique pour qu'il tienne dans la page
+        //    (taille réelle de la figure : _fullLayout ; le conteneur peut être plus étroit)
+        const r = g.getBoundingClientRect();
+        const largeur = (g._fullLayout && g._fullLayout.width) || r.width;
+        const hauteur = (g._fullLayout && g._fullLayout.height) || r.height;
+        const zoom = Math.min(1, LARGEUR_MAX / largeur, HAUTEUR_MAX / hauteur);
+        modifs.push({ bloc, zoom: bloc.style.zoom, style });
+        bloc.style.zoom = zoom;
+      }
+      return modifs;
+    }
+
+    function render({ el }) {
+      const css = document.createElement("style");
+      css.textContent = `
+        button { padding: 6px 14px; font-size: 14px; cursor: pointer;
+                 border: 1px solid #999; border-radius: 6px; background: #fff; }
+        button:hover { background: #f2f2f2; }
+        @media print { button { display: none; } }`;
+      const bouton = document.createElement("button");
+      bouton.textContent = "__LIBELLE__";
+      bouton.onclick = () => {
+        const modifs = preparer();
+        // 3. après l'impression : rétablir l'affichage écran
+        const retablir = () => {
+          modifs.forEach(m => { m.bloc.style.zoom = m.zoom; m.style.remove(); });
+          window.removeEventListener("afterprint", retablir);
+        };
+        window.addEventListener("afterprint", retablir);
+        window.print();   // appelé DANS le cadre du notebook => notebook entier
+      };
+      el.append(css, bouton);
+    }
+    export default { render };
+    """
+
+    class _BoutonImprimer(_anywidget.AnyWidget):
+        _esm = (_JS_BOUTON
+                .replace("__LARGEUR__", str(_LARGEUR_MAX_GRAPHIQUE_PX))
+                .replace("__HAUTEUR__", str(_HAUTEUR_MAX_GRAPHIQUE_PX))
+                .replace("__LIBELLE__", _LIBELLE_BOUTON))
+
+    # --- Affichage : style (invisible) + bouton et aide (non imprimés) ------------
+    mo.vstack([
+        mo.Html(f"<style>{_CSS}</style>"),
+        mo.hstack(
+            [mo.ui.anywidget(_BoutonImprimer()),
+             mo.Html(f'<div class="pas-imprime" style="font-size:12px;color:#666">{_AIDE_BOUTON}</div>')],
+            justify="start", align="center", gap=1,
+        ),
+    ])
+    return
 
 
 @app.cell(hide_code=True)
@@ -1267,6 +1420,14 @@ def fonctions_profil(mo, pl):
 
 
 @app.cell(hide_code=True)
+def saut_page_socle(mo):
+    # Saut de page à l'impression avant le contrôle du socle (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_socle(mo, panneau_filtres):
     # ============================================================================
     # CELLULE — Contrôle du socle (étape A) : panneau de filtres
@@ -1368,6 +1529,14 @@ def widgets_analyse1(mo):
     VUE_GLOBALE_A1, VUE_ANNEE_A1 = "Global", "Par année"
     vue_a1 = mo.ui.radio(options=[VUE_GLOBALE_A1, VUE_ANNEE_A1], value=VUE_GLOBALE_A1, inline=True, label="**Vue**")
     return VUE_ANNEE_A1, compter_par_batiment_a1, vue_a1
+
+
+@app.cell(hide_code=True)
+def saut_page_analyse1(mo):
+    # Saut de page à l'impression avant l'Analyse1 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
 
 
 @app.cell(hide_code=True)
@@ -1689,6 +1858,14 @@ def widgets_analyse2(CLASSES_2028, CLASSES_DIFFICILES, mo):
         inline=True, label="**Période de dépôt du PC**",
     )
     return MODE_COMPARER_A2, MODE_TOUTES_A2, PERIODES_A2, groupe_a_a2, groupe_b_a2, periode_a2
+
+
+@app.cell(hide_code=True)
+def saut_page_analyse2(mo):
+    # Saut de page à l'impression avant l'Analyse2 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
 
 
 @app.cell(hide_code=True)
@@ -2044,6 +2221,14 @@ def widgets_analyse3(CLASSES_2028, mo):
     classe_arrivee_a3 = mo.ui.dropdown(options=CLASSES_2028, value=CLASSES_2028[0], label="vers la classe")
     bouton_fiches_a3 = mo.ui.run_button(label="Charger les fiches environnementales (table composant)")
     return bouton_fiches_a3, classe_arrivee_a3, classe_depart_a3
+
+
+@app.cell(hide_code=True)
+def saut_page_analyse3(mo):
+    # Saut de page à l'impression avant l'Analyse3 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
 
 
 @app.cell(hide_code=True)
@@ -2630,6 +2815,14 @@ def widgets_analyse4(mo):
 
 
 @app.cell(hide_code=True)
+def saut_page_analyse4(mo):
+    # Saut de page à l'impression avant l'Analyse4 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_analyse4(ANALYSES, compter_par_batiment_a4, mo, panneau_filtres):
     # ============================================================================
     # CELLULE — Analyse4 : titre, lecture et panneau de filtres
@@ -2938,6 +3131,14 @@ def widgets_analyse5(mo):
         label="Taux de vitrage cible (% de la sref)",
     )
     return compacite_a5, cible_compacite_a5, cible_vitrage_a5, forfaits_a5, vitrage_a5
+
+
+@app.cell(hide_code=True)
+def saut_page_analyse5(mo):
+    # Saut de page à l'impression avant l'Analyse5 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
 
 
 @app.cell(hide_code=True)
