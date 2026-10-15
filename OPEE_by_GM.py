@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99c"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "14/10/2026 16:45"
+    VERSION = "0.99d"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "15/10/2026 11:00"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 10 : pourcentage affiché à côté de chaque part de 3 % ou plus (une décimale), nom de la catégorie ajouté au-dessus de 10 % (nom court, sans parenthèse) ; nouvelle palette du chauffage (chaudière aubergine, effet Joule ambre, réseau de chaleur lavande, poêle brun) pour la distinguer des 3 autres donuts"),
+        (VERSION, "Impression : panneaux de filtres, titres « Paramètres du graphique », commandes (interrupteurs, curseurs, listes, boutons) et boutons « Télécharger en CSV / JSON » non imprimés (l'encadré des filtres actifs reste) ; en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré (écran et impression)"),
+        ("0.99c", "Graphique 10 : pourcentage affiché à côté de chaque part de 3 % ou plus (une décimale), nom de la catégorie ajouté au-dessus de 10 % (nom court, sans parenthèse) ; nouvelle palette du chauffage (chaudière aubergine, effet Joule ambre, réseau de chaleur lavande, poêle brun) pour la distinguer des 3 autres donuts"),
         ("0.99b", "Bouton « Imprimer / PDF » (anywidget) : sur molab le notebook est affiché dans un cadre et Ctrl+P n'imprimait que la 1re page ; le bouton imprime le notebook entier, réduit les graphiques à la largeur de la page (graphiques 3 et 10 coupés sinon) et masque la barre Plotly (dans le shadow DOM, hors de portée de la CSS de la page). Dépendance anywidget ajoutée"),
         ("0.99", "Impression en PDF depuis Chrome (Ctrl+P) : cellule `style_impression` (@media print : A4 portrait, couleurs conservées, barre Plotly masquée, graphiques non coupés) et cellules `saut_page_N` (nouvelle page avant chaque graphique 2 à 10)"),
         ("0.98", "Graphique 10 : bascule renommée « Masquer « Autre » / non renseigné » (désactivée par défaut) et placée dans un encadré visible sous « Valider… » ; Polars : explode(empty_as_null=True) explicite (fin de l'avertissement de dépréciation)"),
@@ -94,7 +95,7 @@ def entete_et_imports():
     # Largeur fixe en px + max-width:100% : fonctionne même si marimo place le HTML
     # dans un conteneur « shrink-to-fit » (c'est ce qui rendait le visuel invisible).
     _visuel = f"""
-    <div style="width:960px;max-width:100%;border-radius:14px;overflow:hidden;line-height:0;">
+    <div class="visuel-hub" style="width:960px;max-width:100%;border-radius:14px;overflow:hidden;line-height:0;">
     <svg viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg"
          style="display:block;width:100%;height:auto;background:#fff;
                 font-family:Calibri,'Segoe UI',Arial,sans-serif;">
@@ -148,7 +149,7 @@ def entete_et_imports():
     # ---- Deux encarts numérotés (lisibles en thème clair comme sombre) ----
     def _carte(numero, texte):
         return f"""
-        <div style="flex:1;min-width:260px;display:flex;gap:14px;align-items:flex-start;
+        <div class="carte-hub" style="flex:1;min-width:260px;display:flex;gap:14px;align-items:flex-start;
                     padding:16px 18px;border-radius:12px;
                     background:rgba(253,185,19,.14);border:1px solid rgba(253,185,19,.55);">
           <div style="flex:none;width:30px;height:30px;border-radius:50%;
@@ -210,6 +211,9 @@ def style_impression(mo):
     # Dans la boîte d'impression de Chrome (« Plus de paramètres ») :
     #   - cocher « Graphiques d'arrière-plan » (sinon les couleurs de fond disparaissent)
     #   - décocher « En-têtes et pieds de page » (URL et date sur chaque page)
+    # Non imprimés : panneaux de filtres et commandes (interrupteurs, curseurs, listes,
+    # boutons), boutons « Télécharger en CSV / JSON ». L'encadré des filtres actifs
+    # reste imprimé. L'en-tête est réduit à la largeur de la page.
     # Pour masquer le code : imprimer en mode application (mode « run » de molab).
     # Les sauts de page sont posés par les cellules `saut_page_N` (avant chaque graphique).
     # ============================================================================
@@ -228,7 +232,21 @@ def style_impression(mo):
                     "cocher « Graphiques d'arrière-plan », décocher « En-têtes et pieds de page ».")
 
     # --- Règles CSS de la page (doubles accolades : f-string) ----------------------
+    # Commandes (paramètres des graphiques) et boutons de téléchargement : masqués à
+    # l'impression. Chaque élément marimo est un <marimo-ui-element> qui contient
+    # une balise propre à son type (<marimo-switch>, <marimo-download>…).
+    _COMMANDES_NON_IMPRIMEES = [
+        "marimo-download", "marimo-switch", "marimo-slider", "marimo-dropdown",
+        "marimo-multiselect", "marimo-radio", "marimo-button", "marimo-checkbox", "marimo-text",
+    ]
+    _SELECTEUR_COMMANDES = ",\n        ".join(
+        f"marimo-ui-element:has({_balise})" for _balise in _COMMANDES_NON_IMPRIMEES
+    )
+
     _CSS = f"""
+    /* Écran : les textes « imprime-seul » (réglages écrits en clair) sont cachés */
+    .imprime-seul {{ display: none; }}
+
     @media print {{
         /* Format de feuille et marges */
         @page {{ size: {_FORMAT_PAPIER}; margin: {_MARGE_PAGE}; }}
@@ -248,8 +266,20 @@ def style_impression(mo):
             display: block; break-inside: avoid; page-break-inside: avoid;
         }}
 
-        /* Le bouton et son aide ne sont pas imprimés */
+        /* Le bouton, son aide et les zones marquées « pas-imprime » (panneaux de
+           filtres…) ne sont pas imprimés */
         .pas-imprime {{ display: none !important; }}
+
+        /* Commandes et boutons de téléchargement (cf. _COMMANDES_NON_IMPRIMEES) */
+        {_SELECTEUR_COMMANDES} {{ display: none !important; }}
+
+        /* Réglages écrits en clair, à la place des commandes masquées */
+        .imprime-seul {{ display: block !important; }}
+
+        /* En-tête : visuel ramené à la largeur de la page, encarts sur une ligne */
+        .visuel-hub {{ width: {_LARGEUR_MAX_GRAPHIQUE_PX}px !important; max-width: 100% !important; }}
+        .carte-hub {{ min-width: 0 !important; padding: 10px 12px !important; }}
+        .carte-hub > div:last-child {{ font-size: 12px !important; }}
 
         /* Saut de page forcé (cellules `saut_page_N`) */
         .saut-page {{ break-before: page; page-break-before: always; height: 0; }}
@@ -426,7 +456,7 @@ def creation_connect(champ_jeton, mo):
         _comptages, schema=["table", "nb_lignes"], orient="row"
     ).sort("nb_lignes", descending=True)
 
-    _table = mo.ui.table(_df_comptages)
+    _table = mo.ui.table(_df_comptages, show_download=False)
     _table
     """
     _result
@@ -459,7 +489,7 @@ def _(mo, pl, turso_conn):
 
     _df = pl.DataFrame(_lignes, schema=_col_names, orient="row")
 
-    _table = mo.ui.table(_df)
+    _table = mo.ui.table(_df, show_download=False)
     _table
     return
 
@@ -576,7 +606,7 @@ def affiche_table(
     print(f"{_df.height} lignes, {_df.width} colonnes")
 
     # Affichage interactif (tri, filtre, pagination) dans marimo
-    table = mo.ui.table(_df)
+    table = mo.ui.table(_df, show_download=False)
     table
     return (DATA_tab1,)
 
@@ -1147,11 +1177,14 @@ def panneau_filtres_def(
         if parametres_graphique:
             _accordeons.append(mo.accordion(parametres_graphique))
 
-        return mo.vstack([
+        _panneau = mo.vstack([
             _qualite,
             *([mo.callout(bascule_en_evidence, kind="info")] if bascule_en_evidence is not None else []),
             mo.hstack(_accordeons, justify="start", align="start", wrap=True, widths="equal"),
         ])
+        # Non imprimé (classe « pas-imprime », cf. cellule style_impression) : les
+        # filtres actifs restent lisibles dans l'encadré affiché sous le panneau
+        return mo.Html(f'<div class="pas-imprime">{_panneau.text}</div>')
 
     return (panneau_filtres,)
 
@@ -1162,7 +1195,7 @@ def param_graphique_1(mo, panneau_filtres):
     seuil_bas_iccons = mo.ui.slider(start=400, stop=700, step=50, show_value=True, label="La tranche basse de l'ic_construction pour séparer les projets ?")
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 1"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 1").text + '</div>'),
         panneau_filtres({
             "Graphique 1": mo.vstack([
                 seuil_bas_iccons,
@@ -1637,7 +1670,7 @@ def param_graphique_2(mo, panneau_filtres):
     # ============================================================================
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 2"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 2").text + '</div>'),
         panneau_filtres(avec_inconnus=False),
     ])
     return
@@ -1924,7 +1957,7 @@ def param_graphique_3(mo, panneau_filtres):
     valeur_exclusion_lots = mo.ui.range_slider(start=0, stop=500, step=10, value=[0, 300], label="Un lot est compris entre :", show_value=True)
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 3"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 3").text + '</div>'),
         panneau_filtres({
             "Graphique 3": mo.vstack([
                 valeur_exclusion_lots,
@@ -2179,7 +2212,7 @@ def param_graphique_4(mo, panneau_filtres):
     # ============================================================================
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 4"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 4").text + '</div>'),
         panneau_filtres(avec_materiau=False),
     ])
     return
@@ -2397,7 +2430,7 @@ def param_graphique_5(mo, panneau_filtres):
     # ============================================================================
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 5"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 5").text + '</div>'),
         panneau_filtres(),
     ])
     return
@@ -2606,7 +2639,7 @@ def param_graphique_6(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 6"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 6").text + '</div>'),
         panneau_filtres({"Graphique 6": choix_seuil}),
     ])
     return (choix_seuil,)
@@ -2990,7 +3023,7 @@ def param_graphique_7(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 7"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 7").text + '</div>'),
         panneau_filtres(
             {"Graphique 7": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
             avec_materiau=False,
@@ -3250,7 +3283,7 @@ def param_graphique_8(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 8"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 8").text + '</div>'),
         panneau_filtres(
             {"Graphique 8": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
             avec_materiau=False, avec_inconnus=False,
@@ -3698,7 +3731,7 @@ def param_graphique_9(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 9"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 9").text + '</div>'),
         panneau_filtres(),
         choix_y_max_dh,
     ])
@@ -4003,7 +4036,7 @@ def param_graphique_10(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.md("### Paramètres du graphique 10"),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 10").text + '</div>'),
         panneau_filtres(
             {"Graphique 10": choix_nb_categories_10},
             avec_inconnus=False,
@@ -4401,7 +4434,7 @@ def apercu_tables(bouton_apercu_tables, mo, noms_tables, pl, turso_conn):
     mo.vstack([
         mo.md(f"**{len(_apercus)} table(s) lues** — {_NB_LIGNES} premières lignes de chacune."),
         mo.md(f"⚠️ Tables introuvables dans la base : {', '.join(_absentes)}") if _absentes else mo.md(""),
-        mo.ui.table(_resume, selection=None),
+        mo.ui.table(_resume, selection=None, show_download=False),
         _bouton_zip,
         mo.md("Ou table par table :"),
         mo.hstack(_boutons_csv, justify="start", wrap=True),
@@ -4438,7 +4471,7 @@ def _(button_run_analyse_comp, mo, pl, table_a_afficher, turso_conn):
         })
 
     _summary_df = pl.DataFrame(_columns_summary)
-    mo.ui.table(_summary_df)
+    mo.ui.table(_summary_df, show_download=False)
     return
 
 
