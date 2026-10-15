@@ -38,11 +38,15 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.58"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "14/10/2026 17:20"
+    VERSION = "0.59"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "15/10/2026 11:00"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Impression PDF (copie de OPEE_by_GM v0.99c) : bouton « Imprimer / PDF » (anywidget, "
+        (VERSION, "Impression (copie de OPEE_by_GM v0.99d) : panneaux de filtres, commandes et boutons "
+                  "« Télécharger en CSV / JSON » non imprimés (filtres actifs conservés), statistiques et aperçu "
+                  "du contrôle du socle non imprimés, leviers de l'Analyse5 et période de l'Analyse2 écrits en "
+                  "clair à l'impression, en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré"),
+        ("0.58", "Impression PDF (copie de OPEE_by_GM v0.99c) : bouton « Imprimer / PDF » (anywidget, "
                   "notebook entier sur molab, graphiques réduits à la page, barre Plotly masquée), règles "
                   "@media print (A4 portrait, couleurs conservées) et sauts de page avant le contrôle du socle "
                   "et chaque analyse ; dépendance anywidget ajoutée"),
@@ -115,7 +119,7 @@ def entete_et_imports():
     # Largeur fixe en px + max-width:100% : fonctionne même si marimo place le HTML
     # dans un conteneur « shrink-to-fit ».
     _visuel = f"""
-    <div style="width:960px;max-width:100%;border-radius:14px;overflow:hidden;line-height:0;">
+    <div class="visuel-hub" style="width:960px;max-width:100%;border-radius:14px;overflow:hidden;line-height:0;">
     <svg viewBox="0 0 1000 500" xmlns="http://www.w3.org/2000/svg"
          style="display:block;width:100%;height:auto;background:#fff;
                 font-family:Calibri,'Segoe UI',Arial,sans-serif;">
@@ -169,7 +173,7 @@ def entete_et_imports():
     # ---- Encarts numérotés (lisibles en thème clair comme sombre) ----
     def _carte(numero, texte):
         return f"""
-        <div style="flex:1;min-width:260px;display:flex;gap:14px;align-items:flex-start;
+        <div class="carte-hub" style="flex:1;min-width:260px;display:flex;gap:14px;align-items:flex-start;
                     padding:16px 18px;border-radius:12px;
                     background:rgba(253,185,19,.14);border:1px solid rgba(253,185,19,.55);">
           <div style="flex:none;width:30px;height:30px;border-radius:50%;
@@ -214,7 +218,7 @@ def entete_et_imports():
 def style_impression(mo):
     # ============================================================================
     # IMPRESSION PDF : bouton « Imprimer / PDF » + règles @media print
-    # (COPIE DE OPEE_by_GM v0.99c)
+    # (COPIE DE OPEE_by_GM v0.99d)
     #
     # UTILISER LE BOUTON (pas Ctrl+P) sur molab : le notebook y est affiché dans
     # un cadre (iframe) sous le bandeau de molab ; Ctrl+P imprime la page molab,
@@ -233,6 +237,9 @@ def style_impression(mo):
     # Dans la boîte d'impression de Chrome (« Plus de paramètres ») :
     #   - cocher « Graphiques d'arrière-plan » (sinon les couleurs de fond disparaissent)
     #   - décocher « En-têtes et pieds de page » (URL et date sur chaque page)
+    # Non imprimés : panneaux de filtres et commandes (interrupteurs, curseurs, listes,
+    # boutons), boutons « Télécharger en CSV / JSON ». L'encadré des filtres actifs
+    # reste imprimé. L'en-tête est réduit à la largeur de la page.
     # Pour masquer le code : imprimer en mode application (mode « run » de molab).
     # Les sauts de page sont posés par les cellules `saut_page_*` (avant le contrôle
     # du socle et avant chaque analyse).
@@ -252,7 +259,21 @@ def style_impression(mo):
                     "cocher « Graphiques d'arrière-plan », décocher « En-têtes et pieds de page ».")
 
     # --- Règles CSS de la page (doubles accolades : f-string) ----------------------
+    # Commandes (paramètres des graphiques) et boutons de téléchargement : masqués à
+    # l'impression. Chaque élément marimo est un <marimo-ui-element> qui contient
+    # une balise propre à son type (<marimo-switch>, <marimo-download>…).
+    _COMMANDES_NON_IMPRIMEES = [
+        "marimo-download", "marimo-switch", "marimo-slider", "marimo-dropdown",
+        "marimo-multiselect", "marimo-radio", "marimo-button", "marimo-checkbox", "marimo-text",
+    ]
+    _SELECTEUR_COMMANDES = ",\n        ".join(
+        f"marimo-ui-element:has({_balise})" for _balise in _COMMANDES_NON_IMPRIMEES
+    )
+
     _CSS = f"""
+    /* Écran : les textes « imprime-seul » (réglages écrits en clair) sont cachés */
+    .imprime-seul {{ display: none; }}
+
     @media print {{
         /* Format de feuille et marges */
         @page {{ size: {_FORMAT_PAPIER}; margin: {_MARGE_PAGE}; }}
@@ -272,8 +293,20 @@ def style_impression(mo):
             display: block; break-inside: avoid; page-break-inside: avoid;
         }}
 
-        /* Le bouton et son aide ne sont pas imprimés */
+        /* Le bouton, son aide et les zones marquées « pas-imprime » (panneaux de
+           filtres…) ne sont pas imprimés */
         .pas-imprime {{ display: none !important; }}
+
+        /* Commandes et boutons de téléchargement (cf. _COMMANDES_NON_IMPRIMEES) */
+        {_SELECTEUR_COMMANDES} {{ display: none !important; }}
+
+        /* Réglages écrits en clair, à la place des commandes masquées */
+        .imprime-seul {{ display: block !important; }}
+
+        /* En-tête : visuel ramené à la largeur de la page, encarts sur une ligne */
+        .visuel-hub {{ width: {_LARGEUR_MAX_GRAPHIQUE_PX}px !important; max-width: 100% !important; }}
+        .carte-hub {{ min-width: 0 !important; padding: 10px 12px !important; }}
+        .carte-hub > div:last-child {{ font-size: 12px !important; }}
 
         /* Saut de page forcé (cellules `saut_page_N`) */
         .saut-page {{ break-before: page; page-break-before: always; height: 0; }}
@@ -1097,10 +1130,13 @@ def panneau_filtres_def(
         if parametres_analyse:
             _accordeons.append(mo.accordion(parametres_analyse))
 
-        return mo.vstack([
+        _panneau = mo.vstack([
             _qualite,
             mo.hstack(_accordeons, justify="start", align="start", wrap=True, widths="equal"),
         ])
+        # Non imprimé (classe « pas-imprime », cf. cellule style_impression) : les
+        # filtres actifs restent lisibles dans l'encadré affiché sous le panneau
+        return mo.Html(f'<div class="pas-imprime">{_panneau.text}</div>')
 
     return (panneau_filtres,)
 
@@ -1497,19 +1533,22 @@ def apercu_socle(
 
     mo.vstack([
         mo.md("### Exclusions permanentes"),
-        mo.ui.table(BILAN_EXCLUSIONS, selection=None),
+        mo.ui.table(BILAN_EXCLUSIONS, selection=None, show_download=False),
         mo.md(
             f"**Contrôles** (à {_TOL_SOMME} kg/m² près, sur {DATA_socle.height} bâtiments filtrés)  \n"
             f"- `ic_construction = ic_composant + ic_chantier` : **{_nb_incoherents}** bâtiment(s) incohérent(s)  \n"
             f"- `ic_composant = somme des 3 macro-lots` : **{_nb_incoherents_lots}** bâtiment(s) incohérent(s)"
         ),
         mo.md("### Répartition par classe (contrôle)"),
-        mo.ui.table(_classes, selection=None),
-        mo.md("### Statistiques des colonnes calculées"),
-        mo.ui.table(_stats, selection=None),
-        mo.md("### Aperçu des bâtiments filtrés"),
-        mo.ui.table(DATA_socle.select(_COLS_APERCU), selection=None),
-        boutons_export(DATA_socle, "socle_batiments_filtres"),
+        mo.ui.table(_classes, selection=None, show_download=False),
+        # Statistiques et aperçu ligne par ligne : écran seulement (non imprimés)
+        mo.Html('<div class="pas-imprime">' + mo.vstack([
+            mo.md("### Statistiques des colonnes calculées"),
+            mo.ui.table(_stats, selection=None, show_download=False),
+            mo.md("### Aperçu des bâtiments filtrés"),
+            mo.ui.table(DATA_socle.select(_COLS_APERCU), selection=None, show_download=False),
+            boutons_export(DATA_socle, "socle_batiments_filtres"),
+        ]).text + '</div>'),
     ])
     return
 
@@ -1730,7 +1769,7 @@ def graphique_analyse1(
     # 5. Vue « Global » : chiffres clés, graphique, tableau, exports ----------------
     _detail = _unites.sort("ecart_2028", descending=True, nulls_last=True)
     _volet_detail = {f"Détail des {_UNITE} classés": mo.vstack([
-        mo.ui.table(_detail, selection=None),
+        mo.ui.table(_detail, selection=None, show_download=False),
         boutons_export(_detail, f"analyse1_detail_{_UNITE}"),
     ])}
     if not _PAR_ANNEE:
@@ -1738,7 +1777,7 @@ def graphique_analyse1(
             _chiffres,
             mo.ui.plotly(_fig),
             mo.accordion({"Tableau des classes": mo.vstack([
-                mo.ui.table(TABLEAU_A1, selection=None),
+                mo.ui.table(TABLEAU_A1, selection=None, show_download=False),
                 boutons_export(TABLEAU_A1, f"analyse1_classes_par_{_UNITE}"),
             ]), **_volet_detail}),
         ])
@@ -1810,7 +1849,7 @@ def graphique_analyse1(
                 mo.md("*Classes : Conf. = conforme 2028 ; < 30, 30–80, 80–130, > 130 = écart au budget en "
                       "kgCO₂e/m². Année = plus ancienne année de dépôt de PC du projet.*"),
                 mo.accordion({"Tableau des classes par année": mo.vstack([
-                    mo.ui.table(TABLEAU_A1_ANNEE, selection=None),
+                    mo.ui.table(TABLEAU_A1_ANNEE, selection=None, show_download=False),
                     boutons_export(TABLEAU_A1_ANNEE, f"analyse1_classes_par_annee_{_UNITE}"),
                 ]), **_volet_detail}),
             ])
@@ -2041,6 +2080,7 @@ def tableaux_analyse2(
     PROFIL_A2,
     boutons_export,
     mo,
+    periode_a2,
     tableaux_profil,
 ):
     # ============================================================================
@@ -2061,6 +2101,8 @@ def tableaux_analyse2(
 
     mo.vstack([
         mo.md("### 2a. Médiane des indicateurs" + (" (A et B par période)" if COMPARER_A2 else " par classe")),
+        # Période choisie écrite en clair : affichée seulement à l'impression
+        mo.Html(f'<div class="imprime-seul">Période de dépôt du PC : {periode_a2.value}</div>'),
         mo.md(_legende),
         _table_profil,
         boutons_export(PROFIL_A2, "analyse2a_medianes"),
@@ -2728,7 +2770,7 @@ def fonction_barres_fiches(CLASSES_2028, DATA_a3_cl, SOUS_TITRE_FILTRES, go, mo,
         )
         _sortie = mo.vstack([
             mo.ui.plotly(_fig),
-            mo.ui.table(_synthese.rename({"classe_2028": "classe"}), selection=None, pagination=False),
+            mo.ui.table(_synthese.rename({"classe_2028": "classe"}), selection=None, pagination=False, show_download=False),
         ])
         return _sortie, _parts.sort("classe_2028", "nature"), _f
 
@@ -2784,7 +2826,7 @@ def graphique_3e(DATA_fiches, barres_fiches, boutons_export, mo, pl):
         )
         _effet = [
             mo.md("**Effet « donnée » : 8.1 médian selon la nature dominante des fiches 8.1 du bâtiment**"),
-            mo.ui.table(_tableau, selection=None, pagination=False),
+            mo.ui.table(_tableau, selection=None, pagination=False, show_download=False),
             boutons_export(_dominante, "analyse3e_nature_dominante_par_batiment"),
         ]
     else:
@@ -3239,9 +3281,9 @@ def forfaits_analyse5(
               f"*Forfaits RE2020 du logement collectif : 8.1 = {FORFAIT_8_1}, lot 10 = {FORFAIT_LOT_10} kgCO₂e/m² "
               "(arrêté du 4 août 2021, annexe XI). Bâtiment « au forfait » = valeur du lot égale au forfait. "
               "Gain = forfait − médiane des calculs détaillés (0 si la médiane dépasse le forfait).*"),
-        mo.ui.table(_synthese, selection=None, pagination=False),
+        mo.ui.table(_synthese, selection=None, pagination=False, show_download=False),
         mo.md("**Part des bâtiments au forfait par classe**"),
-        mo.ui.table(_par_classe, selection=None, pagination=False),
+        mo.ui.table(_par_classe, selection=None, pagination=False, show_download=False),
         boutons_export(_synthese, "analyse5a_forfaits"),
     ])
     return DATA_a5_forfaits, GAINS_FORFAITS_A5
@@ -3354,9 +3396,9 @@ def regression_analyse5(CLASSES_2028, DATA_a5, boutons_export, mo, pl):
                 })
         _tableau = pl.DataFrame(_lignes)
         _sortie = mo.vstack([
-            mo.ui.table(_tableau, selection=None, pagination=False),
+            mo.ui.table(_tableau, selection=None, pagination=False, show_download=False),
             mo.accordion({"Détail du modèle principal (IC composant)": mo.vstack([
-                mo.ui.table(_detail_principal, selection=None, pagination=False),
+                mo.ui.table(_detail_principal, selection=None, pagination=False, show_download=False),
                 boutons_export(_detail_principal, "analyse5b_modele_ic_composant"),
             ])}),
             boutons_export(_tableau, "analyse5b_effets_leviers"),
@@ -3407,8 +3449,16 @@ def leviers_analyse5(
         f"*Sous {_VITRAGE_MINIMUM_REGLEMENTAIRE:.1f} % : en dessous de la surface minimale de baies (1/6 de la "
         "surface habitable).*" if cible_vitrage_a5.value < _VITRAGE_MINIMUM_REGLEMENTAIRE else ""
     )
+    # Réglages écrits en clair : affichés seulement à l'impression (commandes masquées)
+    _oui_non = {True: "oui", False: "non"}
+    _texte_imprime = (
+        f"Leviers : forfaits 8.1 et lot 10 : {_oui_non[forfaits_a5.value]} · "
+        f"compacité : {_oui_non[compacite_a5.value]} (cible {cible_compacite_a5.value:.2f} m²/m²) · "
+        f"vitrage : {_oui_non[vitrage_a5.value]} (cible {cible_vitrage_a5.value} %)"
+    )
     mo.vstack([
         mo.md("### 5c. Simulation\n\n**Leviers**"),
+        mo.Html(f'<div class="imprime-seul">{_texte_imprime}</div>'),
         mo.hstack([forfaits_a5], justify="start"),
         mo.hstack([compacite_a5, cible_compacite_a5, mo.md(_avertissement("compacite"))], justify="start", gap=2),
         mo.hstack([vitrage_a5, cible_vitrage_a5, mo.md(_avertissement("taux_vitrage"))], justify="start", gap=2),
@@ -3563,7 +3613,7 @@ def simulation_analyse5(
         _chiffres,
         mo.ui.plotly(_fig),
         mo.md("**Effet de chaque levier pris seul**"),
-        mo.ui.table(_tableau, selection=None, pagination=False),
+        mo.ui.table(_tableau, selection=None, pagination=False, show_download=False),
         mo.md("*Le budget composant 2028 de chaque bâtiment est gardé tel quel : l'effet de l'abandon des "
               "forfaits sur la modulation du seuil (Mided) n'est pas pris en compte.*"),
         boutons_export(_tableau, "analyse5c_effet_des_leviers"),
