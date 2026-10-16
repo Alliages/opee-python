@@ -12,6 +12,13 @@ Turso `opee-alliages`.
 Les deux scripts sont indépendants (pas de module commun) : le code partagé est recopié
 d'un notebook à l'autre, avec un commentaire « COPIE DE OPEE_by_GM vX.XX ».
 
+## Données Parquet (dossier `DATA/`)
+
+Le graphique 6 de `OPEE_by_GM.py` lit les fiches (composants) des logements collectifs dans
+`DATA/composants_logements_collectifs_AAAA-MM-JJ.parquet`, produit par le script d'export
+(base Turso) puis publié ici. Pour changer de millésime : modifier `NOM_FICHIER` dans la cellule
+`composants_logements_collectifs`.
+
 ## Lancer en local
 
 ```bash

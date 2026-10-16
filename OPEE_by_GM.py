@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99d"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "15/10/2026 11:00"
+    VERSION = "0.99e"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "16/10/2026 12:00"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Impression : panneaux de filtres, titres « Paramètres du graphique », commandes (interrupteurs, curseurs, listes, boutons) et boutons « Télécharger en CSV / JSON » non imprimés (l'encadré des filtres actifs reste) ; en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré (écran et impression)"),
+        (VERSION, "Nouveau graphique 6 : nombre de fiches par lot RE2020 (barres à 100 %) et par nature de fiche (FDES, FDES configurée, PEP, PEP extrapolée, DED, forfaitaire, autres), nombre moyen de fiches par bâtiment à droite ; fiches lues dans le Parquet DATA/composants_logements_collectifs_2026-10-16.parquet (logements collectifs), mêmes filtres que le graphique 5 (dont l'année de dépôt), petits et grands logements exclus par défaut ; anciens graphiques 6 à 10 renumérotés 7 à 11"),
+        ("0.99d", "Impression : panneaux de filtres, titres « Paramètres du graphique », commandes (interrupteurs, curseurs, listes, boutons) et boutons « Télécharger en CSV / JSON » non imprimés (l'encadré des filtres actifs reste) ; en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré (écran et impression)"),
         ("0.99c", "Graphique 10 : pourcentage affiché à côté de chaque part de 3 % ou plus (une décimale), nom de la catégorie ajouté au-dessus de 10 % (nom court, sans parenthèse) ; nouvelle palette du chauffage (chaudière aubergine, effet Joule ambre, réseau de chaleur lavande, poêle brun) pour la distinguer des 3 autres donuts"),
         ("0.99b", "Bouton « Imprimer / PDF » (anywidget) : sur molab le notebook est affiché dans un cadre et Ctrl+P n'imprimait que la 1re page ; le bouton imprime le notebook entier, réduit les graphiques à la largeur de la page (graphiques 3 et 10 coupés sinon) et masque la barre Plotly (dans le shadow DOM, hors de portée de la CSS de la page). Dépendance anywidget ajoutée"),
         ("0.99", "Impression en PDF depuis Chrome (Ctrl+P) : cellule `style_impression` (@media print : A4 portrait, couleurs conservées, barre Plotly masquée, graphiques non coupés) et cellules `saut_page_N` (nouvelle page avant chaque graphique 2 à 10)"),
@@ -201,7 +202,7 @@ def style_impression(mo):
     #
     # Ce que fait le bouton, juste avant d'ouvrir la boîte d'impression :
     #   1. réduit chaque graphique (zoom CSS) pour qu'il tienne dans la page
-    #      (les graphiques 3 et 10 font 1180 et 1100 px de large, plus qu'une A4) ;
+    #      (les graphiques 3 et 11 font 1180 et 1100 px de large, plus qu'une A4) ;
     #   2. masque la barre d'outils Plotly ;
     #   3. après l'impression (événement « afterprint »), rétablit l'affichage.
     # Les graphiques sont dans un « shadow DOM » (élément <marimo-plotly>) : la CSS
@@ -380,11 +381,12 @@ def liste_graphiques(mo):
         3: "Impact carbone des matériaux : IC composant moyen par lot, par seuil RE2020",
         4: "Médiane IC Composant par matériau de structure et par seuil RE2020",
         5: "Q1 / Médiane / Q3 du nombre de fiches (FDES + PEP + DED) par seuil RE2020",
-        6: "Écart des bâtiments aux seuils réglementaires (%)",
-        7: "Stock de carbone par type de matériau de structure et seuil RE2020",
-        8: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
-        9: "Dispersion du DH par zone climatique, zones traversantes et non traversantes",
-        10: "Répartition des bâtiments : structure, plancher, façade, générateur de chauffage",
+        6: "Nature des fiches par lot RE2020 (% du nombre de fiches)",
+        7: "Écart des bâtiments aux seuils réglementaires (%)",
+        8: "Stock de carbone par type de matériau de structure et seuil RE2020",
+        9: "Éloignement au seuil IC Construction 2028 : comparaison de deux groupes de bâtiments",
+        10: "Dispersion du DH par zone climatique, zones traversantes et non traversantes",
+        11: "Répartition des bâtiments : structure, plancher, façade, générateur de chauffage",
     }
 
     # Configuration commune de TOUS les graphiques Plotly (barre d'outils au survol) :
@@ -759,7 +761,7 @@ def extraction_unique(
     mo.stop(not button_lancer.value)
     # ============================================================================
     # CELLULE D'EXTRACTION UNIQUE — un seul appel réseau à Turso, partagé par
-    # TOUS les graphiques (1 à 10).
+    # TOUS les graphiques (1 à 11).
     #
     # Ne dépend QUE de dropdown_usage (et du bouton). Tous les autres filtres
     # (règles de validation, min/max, surface, années, attestation, zone
@@ -803,7 +805,7 @@ def extraction_unique(
     # ic_composant et ic_energie pour la répartition de l'impact carbone (graphique 2)
     _COLS_SUPPLEMENTAIRES = ["nb_total_fiche_acv", "stock_c", "surface_baies_rset", "surface_murs_rset",
                              "ic_chantier", "ic_eau"]
-    # Choix constructifs et techniques (graphique 10) : plancher, remplissage de façade
+    # Choix constructifs et techniques (graphique 11) : plancher, remplissage de façade
     # (variables dc_*, peu fiables) et générateurs de chauffage (principal | appoint)
     _COLS_CHOIX_CONSTRUCTIFS = ["dc_type_plancher", "dc_materiau_remplissage_facade", "synthese_generateur_ch"]
     # Surfaces totales des zones (table zone_open_data, une ligne par zone)
@@ -814,7 +816,7 @@ def extraction_unique(
     # la valeur de rang n correspond donc à la même zone dans les trois listes.
     #   - dh_zones            : DH de chaque zone (le DH du bâtiment, dh_batiment, en est le max)
     #   - is_traversant_zones : la zone est-elle traversante (True / False) ?
-    #   - dh_max_zones        : DH max réglementaire de chaque zone (graphique 9)
+    #   - dh_max_zones        : DH max réglementaire de chaque zone (graphique 10)
     _COLS_ZONE_LISTES = {
         "dh_zones": ("dh_zone", "REAL"),
         "is_traversant_zones": ("is_traversant", "INTEGER"),
@@ -1376,7 +1378,7 @@ def constantes_filtres(pl):
     #                               surface s'applique ?" ; SREF_MAX_SLIDER / SREF_PAS_SLIDER :
     #                               bornes du curseur de sref
     #   - CATEGORIES_MATERIAU / MAPPING_MATERIAU / COULEURS_CATEGORIES : regroupement
-    #                               des matériaux en 5 catégories (graphiques 4 et 7)
+    #                               des matériaux en 5 catégories (graphiques 4 et 8)
     #   - expr_tranche_surface()  : expression polars donnant la tranche de chaque
     #                               bâtiment (colonne `tranche_sref`)
     # ============================================================================
@@ -1401,7 +1403,7 @@ def constantes_filtres(pl):
         "Béton fibré", "Béton haute performance", "Mixte: bois-béton", "Mixte: béton-acier",
         "Pierre", "Terre crue", "Terre cuite", "Bois massif", "Bois massif reconstitué",
     ]
-    # Regroupement des 15 matériaux de structure en 5 catégories (graphiques 4 et 7)
+    # Regroupement des 15 matériaux de structure en 5 catégories (graphiques 4 et 8)
     CATEGORIES_MATERIAU = ["Sans info", "Béton", "Terre cuite", "Acier", "Bas Carbone"]
     MAPPING_MATERIAU = {
         "Autre": "Sans info",
@@ -2625,6 +2627,349 @@ def saut_page_6(mo):
 @app.cell(hide_code=True)
 def param_graphique_6(mo, panneau_filtres):
     # ============================================================================
+    # CELLULE WIDGETS — paramètres propres au graphique 6 (nature des fiches par lot).
+    #
+    # À placer AVANT la cellule graphique (marimo exige qu'un widget soit défini
+    # dans une autre cellule que celle qui lit sa valeur).
+    # Les filtres communs (dont l'année de dépôt, la zone, la surface…) viennent du
+    # panneau partagé, comme pour le graphique 5.
+    # ============================================================================
+
+    case_sous_lots_6 = mo.ui.switch(label="Détailler par sous-lot (8.1, 8.2…)", value=False)
+    exclure_petits_6 = mo.ui.switch(label="Exclure les « Petit logement coll. » (baies RSET < 50 m²)", value=True)
+    exclure_grands_6 = mo.ui.switch(label="Exclure les « Grand logement coll. » (baies RSET > 200 m²)", value=True)
+
+    mo.vstack([
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 6").text + '</div>'),
+        panneau_filtres({"Graphique 6": mo.vstack([case_sous_lots_6, exclure_petits_6, exclure_grands_6])}),
+    ])
+    return case_sous_lots_6, exclure_grands_6, exclure_petits_6
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_6(resume_filtres):
+    # Résumé des filtres actifs du graphique 6 (cellule séparée : il lit les valeurs
+    # des widgets, alors que le panneau ci-dessus reste statique).
+    resume_filtres()
+    return
+
+
+@app.cell(hide_code=True)
+def composants_logements_collectifs(DATA_brut, USAGE_LOGEMENT_COLLECTIF, dropdown_usage, mo, pl):
+    # ============================================================================
+    # CELLULE — Lecture des COMPOSANTS (fiches) des logements collectifs, pour le
+    # graphique 6. Source : fichier Parquet exporté de la base (script d'export,
+    # une ligne par composant), publié dans le dépôt GitHub (dossier DATA).
+    # Aucun appel à Turso : le fichier est lu une fois, puis réutilisé par le graphique.
+    #
+    # Pour changer de millésime d'export : modifier NOM_FICHIER ci-dessous.
+    # ============================================================================
+
+    # ---- Variables --------------------------------------------------------------
+    NOM_FICHIER = "composants_logements_collectifs_2026-10-16.parquet"
+    URL_DEPOT = f"https://raw.githubusercontent.com/Alliages/opee-python/main/DATA/{NOM_FICHIER}"
+    CHEMIN_LOCAL = f"DATA/{NOM_FICHIER}"        # utilisé en priorité s'il existe (lancement local)
+
+    mo.stop(
+        dropdown_usage.value != USAGE_LOGEMENT_COLLECTIF,
+        mo.md(f"**Graphique 6 : réservé aux logements collectifs** (l'usage choisi est « {dropdown_usage.value} »)."),
+    )
+
+    # ---- Lecture : fichier local s'il existe, sinon GitHub -----------------------
+    from pathlib import Path as _Path
+    _source = CHEMIN_LOCAL if _Path(CHEMIN_LOCAL).exists() else URL_DEPOT
+    _composants = pl.read_parquet(_source, columns=[
+        "projet_id", "batiment_index", "lot_ref", "sous_lot_ref", "type_donnees", "type_declaration",
+    ])
+
+    # ---- Réduction : une ligne par bâtiment x lot x sous-lot x type x déclaration --
+    # (ID = même formule que la colonne "ID" de DATA_brut : projet_id_batiment_index,
+    # batiment_index absent -> 0). Le classement en natures est fait dans le graphique.
+    COMPOSANTS_LC = (
+        _composants
+        .with_columns(
+            pl.concat_str(
+                pl.col("projet_id").cast(pl.Utf8), pl.lit("_"),
+                pl.col("batiment_index").fill_null(0).cast(pl.Utf8),
+            ).alias("ID"),
+        )
+        .group_by("ID", "lot_ref", "sous_lot_ref", "type_donnees", "type_declaration")
+        .agg(pl.len().alias("nb_fiches"))
+    )
+    print(f"Composants lus ({_source}) : {_composants.height} fiches, {COMPOSANTS_LC['ID'].n_unique()} bâtiments")
+    return (COMPOSANTS_LC,)
+
+
+@app.cell(hide_code=True)
+def graphique_6(
+    COMPOSANTS_LC,
+    CONFIG_PLOTLY,
+    DATA_brut,
+    GRAPHIQUES,
+    SOUS_TITRE_FILTRES,
+    TRANCHES_LOGEMENT_COLLECTIF,
+    appliquer_filtres,
+    boutons_export,
+    case_sous_lots_6,
+    dropdown_usage,
+    exclure_grands_6,
+    exclure_petits_6,
+    go,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # GRAPHIQUE 6 — Nombre de fiches par lot RE2020 et par nature de fiche
+    #
+    # Barres horizontales empilées à 100 % : pour chaque lot (1 en haut, 13 en bas),
+    # part de chaque nature de fiche dans le NOMBRE DE FICHES du lot. À droite de
+    # chaque ligne : nombre moyen de fiches par bâtiment dans le lot.
+    #
+    # Fiches par bâtiment : on SOMME d'abord les fiches de chaque bâtiment dans le lot,
+    # puis on fait la MOYENNE de ces sommes sur les bâtiments qui ont au moins une
+    # fiche dans le lot. Le forfaitaire (conventionnelle) n'est PAS compté dans les DED.
+    #
+    # Bâtiments : ceux de DATA_brut passés par les filtres communs (comme le
+    # graphique 5), sans les petits / grands logements si les bascules sont actives.
+    # Les fiches viennent du Parquet (cellule `composants_logements_collectifs`).
+    # ============================================================================
+
+
+    # ============================================================================
+    # PARAMÈTRES (toutes les variables au même endroit)
+    # ============================================================================
+
+    _USAGE = dropdown_usage.value
+    _PAR_SOUS_LOT = case_sous_lots_6.value
+    _LOT_MIN, _LOT_MAX = 1, 13                  # lots conservés (les autres sont écartés)
+    _LOT_MAX_FDES_CONFIGUREE = 7                # fiches configurées des lots 1 à 7 = FDES configurées
+    _SEUIL_ETIQUETTE = 3                        # % : pas d'étiquette dans les segments plus fins
+    _COULEUR_BORD = "rgba(137,135,129,0.5)"
+    _COULEUR_TEXTE = "#898781"
+
+    # Libellés des lots RE2020
+    _LOTS = {
+        1: "VRD, aménagements extérieurs",
+        2: "Fondations, infrastructure",
+        3: "Superstructure, maçonnerie",
+        4: "Couverture, étanchéité, charpente",
+        5: "Cloisonnement, plafonds suspendus",
+        6: "Façades, menuiseries extérieures",
+        7: "Revêtements, peintures",
+        8: "Équipements de génie climatique (CVC)",
+        9: "Installations sanitaires",
+        10: "Réseaux d'énergie (courants forts)",
+        11: "Réseaux de communication (courants faibles)",
+        12: "Appareils élévateurs",
+        13: "Production locale d'énergie",
+    }
+
+    # Natures de fiches, DANS L'ORDRE D'EMPILEMENT (gauche -> droite), avec leur couleur.
+    # Familles : FDES (vert), PEP (bleu), DED (orange), forfaitaire et autres (gris).
+    _NOM_FDES_CONFIGUREE = "FDES configurée"        # fiche configurée des lots 1 à 7
+    _NOM_CONFIGUREE = "Fiche configurée"            # fiche configurée des lots 8 à 13
+    _NOM_EXTRAPOLEE = "PEP extrapolée"
+    _NOM_FORFAIT = "Forfaitaire (conventionnelle)"
+    _NOM_AUTRES = "Autres (surtout réemploi et parfois vide)"
+    _NATURES = {
+        "FDES individuelle": "#55A868",
+        _NOM_FDES_CONFIGUREE: "#55A868",            # hachuré vert / vert clair (cf. _MOTIFS)
+        "FDES collective": "#A9D3B2",
+        "FDES non précisée": "#DCEFE0",
+        _NOM_CONFIGUREE: "#55A868",                 # hachuré vert / bleu (cf. _MOTIFS)
+        "PEP individuelle": "#4C72B0",
+        "PEP collective": "#A9BEDD",
+        "PEP non précisée": "#DCE5F3",
+        _NOM_EXTRAPOLEE: "#4C72B0",                 # hachuré bleu / blanc (cf. _MOTIFS)
+        "DED": "#DD8452",
+        _NOM_FORFAIT: "#8A8A8A",
+        _NOM_AUTRES: "#CFCFCF",
+    }
+    # Natures tracées en hachures (motif Plotly : rayures fgcolor sur fond bgcolor)
+    _MOTIFS = {
+        _NOM_FDES_CONFIGUREE: {"shape": "/", "fgcolor": "#55A868", "bgcolor": "#A9D3B2", "size": 8, "solidity": 0.5},
+        _NOM_CONFIGUREE: {"shape": "/", "fgcolor": "#55A868", "bgcolor": "#4C72B0", "size": 12, "solidity": 0.5},
+        _NOM_EXTRAPOLEE: {"shape": "/", "fgcolor": "#4C72B0", "bgcolor": "white", "size": 6},
+    }
+    # Natures foncées : étiquette en blanc (les autres : étiquette sombre)
+    _NATURES_TEXTE_BLANC = {"FDES individuelle", _NOM_CONFIGUREE, "PEP individuelle", "DED", _NOM_FORFAIT}
+    _RANG_NATURE = {n: i for i, n in enumerate(_NATURES)}
+
+
+    # ============================================================================
+    # 1. BÂTIMENTS RETENUS : filtres communs, puis petits / grands logements
+    # ============================================================================
+
+    _df_bat = appliquer_filtres(DATA_brut)
+    _tranches_exclues = (
+        ([TRANCHES_LOGEMENT_COLLECTIF[0]] if exclure_petits_6.value else [])
+        + ([TRANCHES_LOGEMENT_COLLECTIF[2]] if exclure_grands_6.value else [])
+    )
+    if _tranches_exclues:
+        _avant = _df_bat.height
+        _df_bat = _df_bat.filter(~pl.col("tranche_sref").is_in(_tranches_exclues))
+        print(f"  {_tranches_exclues} exclus : {_avant - _df_bat.height}")
+    _ids = _df_bat["ID"]
+
+    # Fiches des bâtiments retenus, lots 1 à 13 uniquement
+    _lot = pl.col("lot_ref").cast(pl.Int64, strict=False)
+    _fiches = COMPOSANTS_LC.filter(pl.col("ID").is_in(_ids) & _lot.is_between(_LOT_MIN, _LOT_MAX))
+
+    mo.stop(
+        _fiches.height == 0,
+        mo.md("**Aucune fiche ne correspond aux filtres choisis.**"),
+    )
+
+
+    # ============================================================================
+    # 2. CLASSEMENT DE CHAQUE LIGNE DANS UNE NATURE
+    #    (type_donnees normalisé : majuscules, espaces -> « _ »)
+    # ============================================================================
+
+    _type = (pl.col("type_donnees").cast(pl.Utf8).fill_null("")
+             .str.strip_chars().str.to_uppercase().str.replace_all(" ", "_"))
+    _decl = pl.col("type_declaration").cast(pl.Utf8).fill_null("").str.strip_chars().str.to_lowercase()
+    _precision = (
+        pl.when(_decl == "individuelle").then(pl.lit("individuelle"))
+        .when(_decl == "collective").then(pl.lit("collective"))
+        .otherwise(pl.lit("non précisée"))
+    )
+    _nature = (
+        pl.when(_type.is_in(["FDES", "PEP"])).then(pl.concat_str(_type, pl.lit(" "), _precision))
+        .when((_type == "FICHE_CONFIGUREE") & (_lot <= _LOT_MAX_FDES_CONFIGUREE)).then(pl.lit(_NOM_FDES_CONFIGUREE))
+        .when(_type == "FICHE_CONFIGUREE").then(pl.lit(_NOM_CONFIGUREE))
+        .when(_type == "PEP_EXTRAPOLEE").then(pl.lit(_NOM_EXTRAPOLEE))
+        .when(_type == "DED").then(pl.lit("DED"))
+        .when(_type == "CONVENTIONNELLE").then(pl.lit(_NOM_FORFAIT))
+        .otherwise(pl.lit(_NOM_AUTRES))             # réemploi, composant vide, valeur inconnue
+    )
+
+    # Ligne du graphique : le lot, ou le sous-lot (« Sous-lot 8.1 ») ; `ordre` sert au tri
+    if _PAR_SOUS_LOT:
+        _groupe = pl.format("Sous-lot {}.{}", _lot, pl.col("sous_lot_ref").cast(pl.Utf8).fill_null("?"))
+        _ordre = _lot * 100 + pl.col("sous_lot_ref").cast(pl.Int64, strict=False).fill_null(99)
+    else:
+        _groupe = _lot.replace_strict({k: f"Lot {k} – {v}" for k, v in _LOTS.items()}, return_dtype=pl.Utf8)
+        _ordre = _lot * 100
+
+    _f = _fiches.select(
+        "ID", _lot.alias("lot"), pl.col("sous_lot_ref").cast(pl.Int64, strict=False).alias("sous_lot"),
+        _nature.alias("nature"), _groupe.alias("groupe"), _ordre.alias("ordre"), "nb_fiches",
+    )
+
+
+    # ============================================================================
+    # 3. AGRÉGATION
+    # ============================================================================
+
+    # Fiches par bâtiment et par ligne -> moyenne, médiane, nombre de bâtiments
+    _par_batiment = _f.group_by("ID", "ordre", "groupe").agg(pl.col("nb_fiches").sum().alias("n"))
+    _nb_batiments_total = _f["ID"].n_unique()       # bâtiments retenus ayant au moins une fiche
+    _stats_groupe = _par_batiment.group_by("ordre", "groupe").agg(
+        pl.col("n").mean().alias("moyenne_fiches_par_batiment"),
+        pl.col("n").median().alias("mediane_fiches_par_batiment"),
+        (pl.col("n").sum() / _nb_batiments_total).alias("moyenne_fiches_tous_batiments"),
+        pl.len().alias("nb_batiments"),
+    )
+
+    # Grille complète ligne x nature (0 si aucune fiche), pour un export sans trou
+    _grille = _stats_groupe.select("ordre", "groupe").join(pl.DataFrame({"nature": list(_NATURES)}), how="cross")
+    _comptes = _f.group_by("ordre", "groupe", "nature").agg(pl.col("nb_fiches").sum())
+    _valeurs = (
+        _grille.join(_comptes, on=["ordre", "groupe", "nature"], how="left")
+        .with_columns(pl.col("nb_fiches").fill_null(0))
+        .with_columns(
+            pl.col("nb_fiches").sum().over("ordre").alias("nb_fiches_groupe"),
+            (pl.col("nb_fiches") / pl.col("nb_fiches").sum().over("ordre") * 100).alias("part_pct"),
+        )
+        # Part de DED strict (le forfaitaire n'y est pas compté), répétée sur chaque ligne
+        .with_columns(
+            pl.when(pl.col("nature") == "DED").then(pl.col("part_pct")).otherwise(0.0)
+            .sum().over("ordre").alias("part_ded_pct")
+        )
+        .join(_stats_groupe.drop("groupe"), on="ordre")
+        .with_columns(pl.col("nature").replace_strict(_RANG_NATURE, return_dtype=pl.Int64).alias("rang_nature"))
+        .sort("ordre", "rang_nature")
+        .select("groupe", "nature", "nb_fiches", "part_pct", "part_ded_pct",
+                "nb_fiches_groupe", "nb_batiments", "moyenne_fiches_par_batiment",
+                "mediane_fiches_par_batiment", "moyenne_fiches_tous_batiments")
+    )
+
+    # Détail par bâtiment (niveau sous-lot) : base d'analyses complémentaires
+    _detail = (
+        _f.group_by("ID", "lot", "sous_lot", "nature").agg(pl.col("nb_fiches").sum())
+        .sort("ID", "lot", "sous_lot", "nature", nulls_last=True)
+    )
+
+
+    # ============================================================================
+    # 4. GRAPHIQUE
+    # ============================================================================
+
+    _lignes = _valeurs.select("groupe", "moyenne_fiches_par_batiment").unique(maintain_order=True)
+    _fig = go.Figure()
+    for _nom, _couleur in _NATURES.items():
+        _d = _valeurs.filter(pl.col("nature") == _nom)
+        if _d["nb_fiches"].sum() == 0:
+            continue                                # nature absente : pas de légende vide
+        _marque = {"color": _couleur, "line": {"color": _COULEUR_BORD, "width": 0.5}}
+        if _nom in _MOTIFS:
+            _marque["pattern"] = _MOTIFS[_nom]
+        # Étiquette « x % » dans chaque segment d'au moins _SEUIL_ETIQUETTE %
+        _textes = [f"{p:.0f} %" if p >= _SEUIL_ETIQUETTE else "" for p in _d["part_pct"]]
+        _fig.add_trace(go.Bar(
+            name=_nom, y=_d["groupe"], x=_d["part_pct"], orientation="h",
+            marker=_marque, text=_textes, textposition="inside", insidetextanchor="middle",
+            textfont={"color": "white" if _nom in _NATURES_TEXTE_BLANC else "#1f1f1f", "size": 12},
+            customdata=_d["nb_fiches"],
+            hovertemplate=f"<b>%{{y}}</b><br>{_nom} : %{{x:.1f}} % (%{{customdata}} fiches)<extra></extra>",
+        ))
+
+    # À droite de chaque ligne : nombre moyen de fiches par bâtiment
+    for _g, _moy in _lignes.iter_rows():
+        _fig.add_annotation(x=1, xref="paper", y=_g, yref="y", text=f"{_moy:.1f}".replace(".", ","),
+                            showarrow=False, xanchor="left", xshift=12,
+                            font={"size": 12, "color": _COULEUR_TEXTE})
+    _fig.add_annotation(x=1, xref="paper", y=1, yref="paper", text="Fiches moy.<br>par bât.",
+                        showarrow=False, xanchor="left", yanchor="bottom", xshift=4,
+                        font={"size": 11, "color": _COULEUR_TEXTE})
+    _fig.update_layout(
+        template="plotly_white", barmode="stack", bargap=0.35, height=max(460, 34 * _lignes.height + 260),
+        title=dict(
+            text=f"<b>Graphique 6 — {GRAPHIQUES[6]} — {_USAGE}</b><br>"
+                 f"<sup>{_nb_batiments_total} bâtiments ayant des fiches, {int(_f['nb_fiches'].sum())} fiches</sup><br>"
+                 f"<sup>{SOUS_TITRE_FILTRES}</sup>",
+            font=dict(size=20),
+        ),
+        margin={"l": 10, "r": 90, "t": 130, "b": 20},
+        uniformtext={"minsize": 9, "mode": "show"},     # garde les petites étiquettes (>= 3 %)
+        xaxis={"range": [0, 100], "title": "% du nombre de fiches"},
+        yaxis={"autorange": "reversed", "categoryorder": "array", "categoryarray": _lignes["groupe"].to_list()},
+        legend={"orientation": "h", "y": -0.12, "traceorder": "normal"},
+    )
+
+    _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
+    mo.vstack([
+        _graphique,
+        mo.md("**Valeurs du graphique**"),
+        boutons_export(_valeurs, "graphique_6_nature_fiches_par_lot"),
+        mo.md("**Détail par bâtiment, lot, sous-lot et nature**"),
+        boutons_export(_detail, "graphique_6_detail_par_batiment"),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def saut_page_7(mo):
+    # Saut de page à l'impression avant le graphique 7 (aucun effet à l'écran ;
+    # règle `.saut-page` dans la cellule `style_impression`).
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
+def param_graphique_7(mo, panneau_filtres):
+    # ============================================================================
     # CELLULE WIDGET — filtre "seuil RE2020" pour le graphique des écarts
     #
     # À placer AVANT la cellule graphique (marimo exige qu'un widget soit défini
@@ -2639,23 +2984,23 @@ def param_graphique_6(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 6").text + '</div>'),
-        panneau_filtres({"Graphique 6": choix_seuil}),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 7").text + '</div>'),
+        panneau_filtres({"Graphique 7": choix_seuil}),
     ])
     return (choix_seuil,)
 
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_6(resume_filtres):
-    # Résumé des filtres actifs du graphique 6 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_7(resume_filtres):
+    # Résumé des filtres actifs du graphique 7 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres()
     return
 
 
 @app.cell(hide_code=True)
-def graphique_6(
+def graphique_7(
     CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
@@ -2979,7 +3324,7 @@ def graphique_6(
         title=dict(
             text=(
                 f"<span style='font-size:{_TAILLE_TITRE_PRINCIPAL}px'><b>Seuil RE2020 : {_libelle_seuil}</b></span><br>"
-                f"<span style='font-size:16px'>Graphique 6 — {GRAPHIQUES[6]} — {_USAGE}</span><br>"
+                f"<span style='font-size:16px'>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</span><br>"
                 f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
         ),
@@ -2990,22 +3335,22 @@ def graphique_6(
 
     # Export : les données TRACÉES (un point par bâtiment et par indicateur :
     # écart au seuil en %, avec l'ID du bâtiment)
-    mo.vstack([_graphique, boutons_export(pl.concat(_points_export), "graphique_6_ecarts_aux_seuils")])
+    mo.vstack([_graphique, boutons_export(pl.concat(_points_export), "graphique_7_ecarts_aux_seuils")])
     return
 
 
 @app.cell(hide_code=True)
-def saut_page_7(mo):
-    # Saut de page à l'impression avant le graphique 7 (aucun effet à l'écran ;
+def saut_page_8(mo):
+    # Saut de page à l'impression avant le graphique 8 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
     mo.Html('<div class="saut-page"></div>')
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_7(mo, panneau_filtres):
+def param_graphique_8(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètres propres au graphique 7 (stock C) :
+    # CELLULE WIDGET — paramètres propres au graphique 8 (stock C) :
     #   - filtre "seuil RE2020" (tout coché par défaut = tous les seuils)
     #   - zoom sur l'axe Y (borne haute, en kg C/m²)
     # Le matériau n'y figure pas : c'est l'axe du graphique.
@@ -3023,9 +3368,9 @@ def param_graphique_7(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 7").text + '</div>'),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 8").text + '</div>'),
         panneau_filtres(
-            {"Graphique 7": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
+            {"Graphique 8": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
             avec_materiau=False,
         ),
     ])
@@ -3034,15 +3379,15 @@ def param_graphique_7(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_7(resume_filtres):
-    # Résumé des filtres actifs du graphique 7 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_8(resume_filtres):
+    # Résumé des filtres actifs du graphique 8 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres(avec_materiau=False)
     return
 
 
 @app.cell(hide_code=True)
-def graphique_7(
+def graphique_8(
     CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
@@ -3215,7 +3560,7 @@ def graphique_7(
         height=620,
         title=dict(
             text=(
-                f"<b>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</b><br>"
+                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
                 f"<sup>Pointillés : seuils du label bâtiment biosourcé 2024{_note_masquees}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -3239,22 +3584,22 @@ def graphique_7(
 
     # Export : statistiques de chaque boîte (toutes les combinaisons, avec un
     # indicateur `boite_affichee` pour celles masquées faute d'effectif)
-    mo.vstack([_graphique, boutons_export(_agg, "graphique_7_stock_c_par_materiau_et_seuil")])
+    mo.vstack([_graphique, boutons_export(_agg, "graphique_8_stock_c_par_materiau_et_seuil")])
     return
 
 
 @app.cell(hide_code=True)
-def saut_page_8(mo):
-    # Saut de page à l'impression avant le graphique 8 (aucun effet à l'écran ;
+def saut_page_9(mo):
+    # Saut de page à l'impression avant le graphique 9 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
     mo.Html('<div class="saut-page"></div>')
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_8(mo, panneau_filtres):
+def param_graphique_9(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètres propres au graphique 8 (éloignement au seuil
+    # CELLULE WIDGET — paramètres propres au graphique 9 (éloignement au seuil
     # IC Construction 2028, logements collectifs).
     #   - écart maximal au-dessus du seuil 2028 qui reste dans le groupe 1
     #   - variable catégorielle comparée (barres 100 % empilées)
@@ -3283,9 +3628,9 @@ def param_graphique_8(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 8").text + '</div>'),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 9").text + '</div>'),
         panneau_filtres(
-            {"Graphique 8": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
+            {"Graphique 9": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
             avec_materiau=False, avec_inconnus=False,
             bascules_graphique=[cacher_autre_7],       # rangée du haut, avec « Valider… »
         ),
@@ -3295,15 +3640,15 @@ def param_graphique_8(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_8(resume_filtres):
-    # Résumé des filtres actifs du graphique 8 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_9(resume_filtres):
+    # Résumé des filtres actifs du graphique 9 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres(avec_materiau=False, avec_inconnus=False)
     return
 
 
 @app.cell(hide_code=True)
-def groupes_graphique_8(
+def groupes_graphique_9(
     DATA_brut,
     SREF_MAX_SLIDER,
     TRANCHES_LOGEMENT_COLLECTIF,
@@ -3315,7 +3660,7 @@ def groupes_graphique_8(
     pl,
 ):
     # ============================================================================
-    # CELLULE — Constitution des 2 groupes du graphique 8 (aucun appel réseau)
+    # CELLULE — Constitution des 2 groupes du graphique 9 (aucun appel réseau)
     #
     # Éloignement au seuil 2028, propre à CHAQUE bâtiment :
     #     ecart_2028 = ic_construction - ic_construction_max_2028
@@ -3369,7 +3714,7 @@ def groupes_graphique_8(
 
     mo.stop(
         _USAGE != USAGE_LOGEMENT_COLLECTIF,
-        mo.md(f"**Graphique 8 : réservé aux logements collectifs** (l'usage choisi est « {_USAGE} »)."),
+        mo.md(f"**Graphique 9 : réservé aux logements collectifs** (l'usage choisi est « {_USAGE} »)."),
     )
 
 
@@ -3456,7 +3801,7 @@ def graphique_8_numerique(
     # GRAPHIQUE 8 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
     # les groupes 1a, 1b et 2, un panneau par indicateur (échelles indépendantes).
     # Le groupe 1 est scindé selon l'année de dépôt du permis (la plus ancienne du projet,
-    # comme au graphique 6) : 1a = 2022-2023, 1b = 2024-2025. Les bâtiments du groupe 1
+    # comme au graphique 7) : 1a = 2022-2023, 1b = 2024-2025. Les bâtiments du groupe 1
     # déposés une autre année n'apparaissent dans aucun des deux sous-groupes.
     # Point = médiane ; barre d'erreur = de Q1 à Q3 (même lecture que le graphique 5).
     # ============================================================================
@@ -3567,7 +3912,7 @@ def graphique_8_numerique(
         height=_HAUTEUR_PAR_LIGNE * _nb_lignes + 200,
         title=dict(
             text=(
-                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
+                f"<b>Graphique 9 — {GRAPHIQUES[9]} — {_USAGE}</b><br>"
                 f"<sup>Point = médiane ; barre = de Q1 à Q3 ; groupe 1 scindé par année de dépôt du permis (1a : {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}, 1b : {_ANNEES_1B[0]}-{_ANNEES_1B[-1]})</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -3580,7 +3925,7 @@ def graphique_8_numerique(
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : statistiques de chaque (indicateur, groupe), avec l'indicateur `trace`
-    mo.vstack([_graphique, boutons_export(_stats, "graphique_8_stats_par_groupe")])
+    mo.vstack([_graphique, boutons_export(_stats, "graphique_9_stats_par_groupe")])
     return
 
 
@@ -3683,7 +4028,7 @@ def graphique_8_categoriel(
         height=560,
         title=dict(
             text=(
-                f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
+                f"<b>Graphique 9 — {GRAPHIQUES[9]} — {_USAGE}</b><br>"
                 f"<sup>Répartition : {_LIBELLE_VARIABLE}{_note_masque}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -3697,22 +4042,22 @@ def graphique_8_categoriel(
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : effectif et part de chaque modalité dans chaque groupe
-    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_8_repartition_categorielle")])
+    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_9_repartition_categorielle")])
     return
 
 
 @app.cell(hide_code=True)
-def saut_page_9(mo):
-    # Saut de page à l'impression avant le graphique 9 (aucun effet à l'écran ;
+def saut_page_10(mo):
+    # Saut de page à l'impression avant le graphique 10 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
     mo.Html('<div class="saut-page"></div>')
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_9(mo, panneau_filtres):
+def param_graphique_10(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètre propre au graphique 9 : zoom sur l'axe Y (borne
+    # CELLULE WIDGET — paramètre propre au graphique 10 : zoom sur l'axe Y (borne
     # haute, en °C·h). Le slider est affiché sous le panneau de filtres, hors
     # accordéon (donc toujours visible). Les valeurs proposées : 350, puis de 100 en
     # 100 de 400 à 2500 (une grille 350, 450, ... ne contiendrait pas 1500).
@@ -3727,11 +4072,11 @@ def param_graphique_9(mo, panneau_filtres):
     choix_y_max_dh = mo.ui.slider(
         steps=[Y_MAX_DH_MIN] + list(range(400, Y_MAX_DH_MAX + 1, Y_MAX_DH_PAS)),
         value=Y_MAX_DH_DEFAUT, show_value=True, full_width=True,
-        label="Zoom Axe Y : maximum du DH affiché (graphique 9)",
+        label="Zoom Axe Y : maximum du DH affiché (graphique 10)",
     )
 
     mo.vstack([
-        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 9").text + '</div>'),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 10").text + '</div>'),
         panneau_filtres(),
         choix_y_max_dh,
     ])
@@ -3739,15 +4084,15 @@ def param_graphique_9(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_9(resume_filtres):
-    # Résumé des filtres actifs du graphique 9 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_10(resume_filtres):
+    # Résumé des filtres actifs du graphique 10 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres()
     return
 
 
 @app.cell(hide_code=True)
-def graphique_9(
+def graphique_10(
     CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
@@ -3969,7 +4314,7 @@ def graphique_9(
         height=620,
         title=dict(
             text=(
-                f"<b>Graphique 9 — {GRAPHIQUES[9]} — {_USAGE}</b><br>"
+                f"<b>Graphique 10 — {GRAPHIQUES[10]} — {_USAGE}</b><br>"
                 f"<sup>{_zones.height} zones de {_zones['ID'].n_unique()} bâtiments{_note_masquees}</sup><br>"
                 + (f"<sup>{(_note_exclues + _note_axe).lstrip(' —')}</sup><br>" if (_note_exclues or _note_axe) else "")
                 + f"<sup>{SOUS_TITRE_FILTRES}</sup>"
@@ -4001,23 +4346,23 @@ def graphique_9(
     # Export : statistiques de chaque (zone climatique, traversante ou non)
     mo.vstack([_graphique, boutons_export(
         _agg.sort("zone_climatique", "is_traversant", descending=[False, True]),
-        "graphique_9_dh_par_zone_climatique",
+        "graphique_10_dh_par_zone_climatique",
     )])
     return
 
 
 @app.cell(hide_code=True)
-def saut_page_10(mo):
-    # Saut de page à l'impression avant le graphique 10 (aucun effet à l'écran ;
+def saut_page_11(mo):
+    # Saut de page à l'impression avant le graphique 11 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
     mo.Html('<div class="saut-page"></div>')
     return
 
 
 @app.cell(hide_code=True)
-def param_graphique_10(mo, panneau_filtres):
+def param_graphique_11(mo, panneau_filtres):
     # ============================================================================
-    # CELLULE WIDGET — paramètres propres au graphique 10 (4 donuts : matériau de
+    # CELLULE WIDGET — paramètres propres au graphique 11 (4 donuts : matériau de
     # structure, type de plancher, remplissage de façade, générateur de chauffage).
     #   - bascule « Masquer « Autre » / non renseigné » (encadré visible sous « Valider… ») :
     #     masque « Autre » et les valeurs vides, les pourcentages sont recalculés ;
@@ -4036,9 +4381,9 @@ def param_graphique_10(mo, panneau_filtres):
     )
 
     mo.vstack([
-        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 10").text + '</div>'),
+        mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 11").text + '</div>'),
         panneau_filtres(
-            {"Graphique 10": choix_nb_categories_10},
+            {"Graphique 11": choix_nb_categories_10},
             avec_inconnus=False,
             bascule_en_evidence=masquer_non_renseignes_10,     # encadré sous « Valider… », bien visible
         ),
@@ -4047,15 +4392,15 @@ def param_graphique_10(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_10(resume_filtres):
-    # Résumé des filtres actifs du graphique 10 (cellule séparée : il lit les valeurs
+def resume_filtres_graphique_11(resume_filtres):
+    # Résumé des filtres actifs du graphique 11 (cellule séparée : il lit les valeurs
     # des widgets, alors que le panneau ci-dessus reste statique).
     resume_filtres(avec_inconnus=False)
     return
 
 
 @app.cell(hide_code=True)
-def graphique_10(
+def graphique_11(
     CONFIG_PLOTLY,
     GRAPHIQUES,
     DATA_brut,
@@ -4070,7 +4415,7 @@ def graphique_10(
     pl,
 ):
     # ============================================================================
-    # CELLULE — Graphique 10 : 4 donuts, répartition (%) des bâtiments par matériau
+    # CELLULE — Graphique 11 : 4 donuts, répartition (%) des bâtiments par matériau
     # de structure, type de plancher, matériau de remplissage de façade et
     # générateur de chauffage.
     #
@@ -4319,7 +4664,7 @@ def graphique_10(
         margin=dict(t=_MARGE_HAUT, b=_MARGE_BAS, l=_MARGE_GAUCHE, r=_MARGE_DROITE),
         font=dict(family=_POLICE),
         title=dict(
-            text=f"<b>Graphique 10 — {GRAPHIQUES[10]} — {_USAGE}</b><br>"
+            text=f"<b>Graphique 11 — {GRAPHIQUES[11]} — {_USAGE}</b><br>"
                  f"<sup>{SOUS_TITRE_FILTRES} — {_non_renseignes_txt}</sup>",
             font=dict(size=18),
         ),
@@ -4329,7 +4674,7 @@ def graphique_10(
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
     # Export : les données TRACÉES (donut, catégorie, nombre de bâtiments, %, couleur)
-    mo.vstack([_graphique, boutons_export(pl.concat(_export), "graphique_10_repartition_choix_constructifs")])
+    mo.vstack([_graphique, boutons_export(pl.concat(_export), "graphique_11_repartition_choix_constructifs")])
     return
 
 
