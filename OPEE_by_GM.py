@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99f"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "16/10/2026 03:40"
+    VERSION = "0.99g"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "16/10/2026 10:00"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 5 corrigé : empilement de tous les types de fiches du total (FDES, fiches configurées, PEP, PEP extrapolées, DED, autres ; nb_des exclu car hors total), valeurs écrites dans les segments, nouvelle palette (hachures pour les fiches configurées et les PEP extrapolées) ; colonne du milieu = total des fiches, point = médiane et barre = Q1 à Q3 (style du graphique 8)"),
+        (VERSION, "Graphique 6 : filtre des seuils IC construction atteints (RE2022, RE2025, RE2028, RE2031) ; sous le graphique, en gros chiffres, part des FDES / PEP (individuelles, collectives, configurées…) face aux DED + forfaitaire pour le gros œuvre (lots 2-3, bleu), le second œuvre (lots 4-7, rouge) et les lots techniques (lots 8-13, vert), couleurs du graphique 3 ; encadré des filtres actifs placé sous le graphique"),
+        ("0.99f", "Graphique 5 corrigé : empilement de tous les types de fiches du total (FDES, fiches configurées, PEP, PEP extrapolées, DED, autres ; nb_des exclu car hors total), valeurs écrites dans les segments, nouvelle palette (hachures pour les fiches configurées et les PEP extrapolées) ; colonne du milieu = total des fiches, point = médiane et barre = Q1 à Q3 (style du graphique 8)"),
         ("0.99e", "Nouveau graphique 6 : nombre de fiches par lot RE2020 (barres à 100 %) et par nature de fiche (FDES, FDES configurée, PEP, PEP extrapolée, DED, forfaitaire, autres), nombre moyen de fiches par bâtiment à droite ; fiches lues dans le Parquet DATA/composants_logements_collectifs_2026-10-16.parquet (logements collectifs), mêmes filtres que le graphique 5 (dont l'année de dépôt), petits et grands logements exclus par défaut ; anciens graphiques 6 à 10 renumérotés 7 à 11"),
         ("0.99d", "Impression : panneaux de filtres, titres « Paramètres du graphique », commandes (interrupteurs, curseurs, listes, boutons) et boutons « Télécharger en CSV / JSON » non imprimés (l'encadré des filtres actifs reste) ; en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré (écran et impression)"),
         ("0.99c", "Graphique 10 : pourcentage affiché à côté de chaque part de 3 % ou plus (une décimale), nom de la catégorie ajouté au-dessus de 10 % (nom court, sans parenthèse) ; nouvelle palette du chauffage (chaudière aubergine, effet Joule ambre, réseau de chaleur lavande, poêle brun) pour la distinguer des 3 autres donuts"),
@@ -1154,8 +1155,8 @@ def panneau_filtres_def(
         - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
         - bascules_graphique : switchs propres au graphique, ajoutés dans la rangée du haut
           (à côté de « Valider… » et « Masquer les inconnus »).
-        - bascule_en_evidence : un switch propre au graphique, affiché dans un encadré SOUS la
-          rangée du haut (plus visible que les bascules de la rangée).
+        - bascule_en_evidence : un widget propre au graphique (switch, liste…), affiché dans un
+          encadré SOUS la rangée du haut (plus visible que les bascules de la rangée).
         """
         # 1. Qualité des données : toujours visible, en haut
         _qualite = mo.hstack(
@@ -1568,10 +1569,12 @@ def filtres_communs(
 
 
     # --- Résumé des filtres actifs, par catégorie (même découpage que le panneau) --
-    def resume_filtres(avec_materiau=True, avec_inconnus=True):
+    def resume_filtres(avec_materiau=True, avec_inconnus=True, parametres_graphique=None):
         """Encadré résumant les filtres actifs, rangés comme dans le panneau.
         - avec_materiau=False : graphique où le matériau est l'axe (filtre non appliqué).
-        - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus »."""
+        - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
+        - parametres_graphique : dict {libellé : [textes]} des filtres propres au graphique,
+          ajoutés en dernière ligne de l'encadré (ex. {"Graphique 6": ["seuils RE2022"]})."""
         _qualite = [
             "bâtiments validés seulement" if _VALID_REGLES else "tous les bâtiments (non validés inclus)"
         ]
@@ -1585,12 +1588,18 @@ def filtres_communs(
         _batiment = [f"surface ({_texte_surface})"]
         if avec_materiau:
             _batiment.append(f"matériaux {_resume(FILTRES['materiaux'], 'tous')}")
+        # Filtres propres au graphique (optionnels), une ligne par libellé
+        _lignes_graphique = "".join(
+            f"  \n**{_libelle}** : {' · '.join(_textes)}"
+            for _libelle, _textes in (parametres_graphique or {}).items()
+        )
         return mo.callout(
             mo.md(
                 "**Filtres actifs**  \n"
                 f"**Qualité** : {' · '.join(_qualite)}  \n"
                 f"**Période et lieu** : {' · '.join(_periode)}  \n"
                 f"**Bâtiment** : {' · '.join(_batiment)}"
+                f"{_lignes_graphique}"
             ),
             kind="neutral",
         )
@@ -2706,23 +2715,24 @@ def param_graphique_6(mo, panneau_filtres):
     # panneau partagé, comme pour le graphique 5.
     # ============================================================================
 
+    # ---- Variables --------------------------------------------------------------
+    SEUILS_6 = ["RE2022", "RE2025", "RE2028", "RE2031"]   # seuils IC construction atteints
+
+    # Seuils : tout coché = pas de filtre (les « Inconnu » suivent alors « Masquer les inconnus ») ;
+    # sélection partielle = seuls les seuils cochés sont gardés.
+    choix_seuils_6 = mo.ui.multiselect(options=SEUILS_6, value=SEUILS_6, label="Seuil IC construction atteint")
     case_sous_lots_6 = mo.ui.switch(label="Détailler par sous-lot (8.1, 8.2…)", value=False)
     exclure_petits_6 = mo.ui.switch(label="Exclure les « Petit logement coll. » (baies RSET < 50 m²)", value=True)
     exclure_grands_6 = mo.ui.switch(label="Exclure les « Grand logement coll. » (baies RSET > 200 m²)", value=True)
 
     mo.vstack([
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 6").text + '</div>'),
-        panneau_filtres({"Graphique 6": mo.vstack([case_sous_lots_6, exclure_petits_6, exclure_grands_6])}),
+        panneau_filtres(
+            {"Graphique 6": mo.vstack([case_sous_lots_6, exclure_petits_6, exclure_grands_6])},
+            bascule_en_evidence=choix_seuils_6,     # encadré visible sous la rangée du haut
+        ),
     ])
-    return case_sous_lots_6, exclure_grands_6, exclure_petits_6
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_6(resume_filtres):
-    # Résumé des filtres actifs du graphique 6 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres()
-    return
+    return case_sous_lots_6, choix_seuils_6, exclure_grands_6, exclure_petits_6
 
 
 @app.cell(hide_code=True)
@@ -2782,12 +2792,14 @@ def graphique_6(
     appliquer_filtres,
     boutons_export,
     case_sous_lots_6,
+    choix_seuils_6,
     dropdown_usage,
     exclure_grands_6,
     exclure_petits_6,
     go,
     mo,
     pl,
+    valeurs_actives,
 ):
     # ============================================================================
     # GRAPHIQUE 6 — Nombre de fiches par lot RE2020 et par nature de fiche
@@ -2800,8 +2812,13 @@ def graphique_6(
     # puis on fait la MOYENNE de ces sommes sur les bâtiments qui ont au moins une
     # fiche dans le lot. Le forfaitaire (conventionnelle) n'est PAS compté dans les DED.
     #
+    # Sous le graphique, en gros chiffres, pour chaque macro-lot (gros œuvre, second
+    # œuvre, lots techniques, mêmes groupes et couleurs que le graphique 3) : part des
+    # FDES / PEP face aux DED + forfaitaire, en nombre de fiches.
+    #
     # Bâtiments : ceux de DATA_brut passés par les filtres communs (comme le
-    # graphique 5), sans les petits / grands logements si les bascules sont actives.
+    # graphique 5), puis par le filtre des seuils et sans les petits / grands
+    # logements si les bascules sont actives.
     # Les fiches viennent du Parquet (cellule `composants_logements_collectifs`).
     # ============================================================================
 
@@ -2812,6 +2829,8 @@ def graphique_6(
 
     _USAGE = dropdown_usage.value
     _PAR_SOUS_LOT = case_sous_lots_6.value
+    _SEUILS_CHOISIS = valeurs_actives(choix_seuils_6)   # [] = tous cochés = pas de filtre
+    _TEXTE_SEUILS = ", ".join(_SEUILS_CHOISIS) if _SEUILS_CHOISIS else "tous"
     _LOT_MIN, _LOT_MAX = 1, 13                  # lots conservés (les autres sont écartés)
     _LOT_MAX_FDES_CONFIGUREE = 7                # fiches configurées des lots 1 à 7 = FDES configurées
     _SEUIL_ETIQUETTE = 3                        # % : pas d'étiquette dans les segments plus fins
@@ -2866,12 +2885,30 @@ def graphique_6(
     _NATURES_TEXTE_BLANC = {"FDES individuelle", _NOM_CONFIGUREE, "PEP individuelle", "DED", _NOM_FORFAIT}
     _RANG_NATURE = {n: i for i, n in enumerate(_NATURES)}
 
+    # --- Gros chiffres sous le graphique : macro-lots (groupes et couleurs du graphique 3)
+    _MACRO_LOTS = {
+        "Gros œuvre": {"lots": [2, 3], "texte_lots": "lots 2 et 3", "couleur": "#084594"},          # bleu
+        "Second œuvre": {"lots": [4, 5, 6, 7], "texte_lots": "lots 4 à 7", "couleur": "#99000D"},   # rouge
+        "Lots techniques": {"lots": list(range(8, 14)), "texte_lots": "lots 8 à 13", "couleur": "#0C562A"},  # vert
+    }
+    # Deux camps comparés (en nombre de fiches). Les « Autres » (réemploi, vide) ne sont
+    # dans aucun des deux : ils sont retirés du dénominateur et signalés à part.
+    _CAMP_FDES_PEP = [
+        "FDES individuelle", "FDES collective", "FDES non précisée", _NOM_FDES_CONFIGUREE,
+        _NOM_CONFIGUREE, "PEP individuelle", "PEP collective", "PEP non précisée", _NOM_EXTRAPOLEE,
+    ]
+    _CAMP_DED_FORFAIT = ["DED", _NOM_FORFAIT]
+    _TAILLE_GROS_CHIFFRE = 46                   # px
+
 
     # ============================================================================
-    # 1. BÂTIMENTS RETENUS : filtres communs, puis petits / grands logements
+    # 1. BÂTIMENTS RETENUS : filtres communs, seuils, puis petits / grands logements
     # ============================================================================
 
     _df_bat = appliquer_filtres(DATA_brut)
+    if _SEUILS_CHOISIS:                             # sélection partielle : seuils cochés seulement
+        _df_bat = _df_bat.filter(pl.col("seuil").is_in(_SEUILS_CHOISIS))
+        print(f"  après filtre seuils {_SEUILS_CHOISIS} : {_df_bat.height}")
     _tranches_exclues = (
         ([TRANCHES_LOGEMENT_COLLECTIF[0]] if exclure_petits_6.value else [])
         + ([TRANCHES_LOGEMENT_COLLECTIF[2]] if exclure_grands_6.value else [])
@@ -2972,6 +3009,41 @@ def graphique_6(
         .sort("ID", "lot", "sous_lot", "nature", nulls_last=True)
     )
 
+    # Macro-lots : fiches FDES / PEP face aux DED + forfaitaire (en nombre de fiches).
+    # Part = fiches du camp / (FDES-PEP + DED-forfait) ; les « Autres » sont hors calcul.
+    _camp = (
+        pl.when(pl.col("nature").is_in(_CAMP_FDES_PEP)).then(pl.lit("fdes_pep"))
+        .when(pl.col("nature").is_in(_CAMP_DED_FORFAIT)).then(pl.lit("ded_forfait"))
+        .otherwise(pl.lit("autres"))
+    )
+    def _part(valeur, base):
+        """Part en % (None si la base est vide)."""
+        return valeur / base * 100 if base else None
+
+    _lignes_macro = []
+    for _nom_macro, _macro in _MACRO_LOTS.items():
+        _sous_total = (
+            _f.filter(pl.col("lot").is_in(_macro["lots"]))
+            .with_columns(_camp.alias("camp"))
+        )
+        _n = {
+            "fdes_pep": int(_sous_total.filter(pl.col("camp") == "fdes_pep")["nb_fiches"].sum()),
+            "ded": int(_sous_total.filter(pl.col("nature") == "DED")["nb_fiches"].sum()),
+            "forfait": int(_sous_total.filter(pl.col("nature") == _NOM_FORFAIT)["nb_fiches"].sum()),
+            "autres": int(_sous_total.filter(pl.col("camp") == "autres")["nb_fiches"].sum()),
+        }
+        _base = _n["fdes_pep"] + _n["ded"] + _n["forfait"]
+        _lignes_macro.append({
+            "macro_lot": _nom_macro, "lots": _macro["texte_lots"],
+            "nb_fiches_fdes_pep": _n["fdes_pep"], "nb_fiches_ded": _n["ded"],
+            "nb_fiches_forfaitaire": _n["forfait"], "nb_fiches_autres_hors_calcul": _n["autres"],
+            "part_fdes_pep_pct": _part(_n["fdes_pep"], _base),
+            "part_ded_forfait_pct": _part(_n["ded"] + _n["forfait"], _base),
+            "part_ded_pct": _part(_n["ded"], _base), "part_forfait_pct": _part(_n["forfait"], _base),
+            "nb_batiments": _sous_total["ID"].n_unique(),
+        })
+    _parts_macro = pl.DataFrame(_lignes_macro)
+
 
     # ============================================================================
     # 4. GRAPHIQUE
@@ -3008,7 +3080,8 @@ def graphique_6(
         template="plotly_white", barmode="stack", bargap=0.35, height=max(460, 34 * _lignes.height + 260),
         title=dict(
             text=f"<b>Graphique 6 — {GRAPHIQUES[6]} — {_USAGE}</b><br>"
-                 f"<sup>{_nb_batiments_total} bâtiments ayant des fiches, {int(_f['nb_fiches'].sum())} fiches</sup><br>"
+                 f"<sup>{_nb_batiments_total} bâtiments ayant des fiches, {int(_f['nb_fiches'].sum())} fiches"
+                 f" — Seuils IC construction : {_TEXTE_SEUILS}</sup><br>"
                  f"<sup>{SOUS_TITRE_FILTRES}</sup>",
             font=dict(size=20),
         ),
@@ -3020,13 +3093,82 @@ def graphique_6(
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
+
+
+    # ============================================================================
+    # 5. GROS CHIFFRES SOUS LE GRAPHIQUE : FDES / PEP face aux DED + forfaitaire
+    # ============================================================================
+
+    def _fr(valeur, decimales=0):
+        """Nombre à la française (espace des milliers, virgule décimale)."""
+        return f"{valeur:,.{decimales}f}".replace(",", " ").replace(".", ",")
+
+    _cartes = []
+    for _ligne in _parts_macro.iter_rows(named=True):
+        _couleur = _MACRO_LOTS[_ligne["macro_lot"]]["couleur"]
+        if _ligne["part_fdes_pep_pct"] is None:     # aucune fiche FDES / PEP / DED / forfait
+            _corps = '<div style="color:#898781;margin-top:18px;">aucune fiche</div>'
+        else:
+            _corps = f"""
+              <div style="font-size:{_TAILLE_GROS_CHIFFRE}px;font-weight:800;color:{_couleur};line-height:1.1;margin-top:6px;">
+                {_fr(_ligne['part_fdes_pep_pct'])} %</div>
+              <div style="font-size:13px;color:{_couleur};font-weight:600;">FDES / PEP</div>
+              <div style="font-size:22px;font-weight:700;color:#555;margin-top:8px;">
+                vs {_fr(_ligne['part_ded_forfait_pct'])} %</div>
+              <div style="font-size:13px;color:#555;">DED + forfaitaire</div>
+              <div style="font-size:12px;color:#898781;margin-top:6px;">
+                DED {_fr(_ligne['part_ded_pct'])} % · forfaitaire {_fr(_ligne['part_forfait_pct'])} %</div>"""
+        _cartes.append(f"""
+            <div style="flex:1 1 180px;border:1px solid #e3e3e3;border-top:5px solid {_couleur};
+                        border-radius:8px;padding:12px 14px;text-align:center;">
+              <div style="font-size:17px;font-weight:700;color:{_couleur};">{_ligne['macro_lot']}</div>
+              <div style="font-size:12px;color:#898781;">{_ligne['lots']}</div>
+              {_corps}
+              <div style="font-size:11px;color:#898781;margin-top:8px;">
+                {_fr(_ligne['nb_fiches_fdes_pep'] + _ligne['nb_fiches_ded'] + _ligne['nb_fiches_forfaitaire'])} fiches ·
+                {_fr(_ligne['nb_batiments'])} bâtiments</div>
+            </div>""")
+    _gros_chiffres = mo.Html(f"""
+        <div style="margin:4px 0 8px 0;">
+          <div style="font-size:15px;font-weight:700;margin-bottom:8px;">
+            Part des FDES / PEP face aux DED et au forfaitaire, par macro-lot (en nombre de fiches)</div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;">{''.join(_cartes)}</div>
+          <div style="font-size:11px;color:#898781;margin-top:6px;">
+            FDES / PEP : individuelles, collectives, non précisées, configurées et PEP extrapolées.
+            Lot 1 (VRD) non compté, comme au graphique 3 ; réemploi et composants vides hors calcul.</div>
+        </div>""")
+
     mo.vstack([
         _graphique,
+        _gros_chiffres,
         mo.md("**Valeurs du graphique**"),
         boutons_export(_valeurs, "graphique_6_nature_fiches_par_lot"),
+        mo.md("**Parts FDES / PEP et DED + forfaitaire par macro-lot**"),
+        boutons_export(_parts_macro, "graphique_6_parts_par_macro_lot"),
         mo.md("**Détail par bâtiment, lot, sous-lot et nature**"),
         boutons_export(_detail, "graphique_6_detail_par_batiment"),
     ])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_6(
+    choix_seuils_6,
+    exclure_grands_6,
+    exclure_petits_6,
+    resume_filtres,
+    valeurs_actives,
+):
+    # Résumé des filtres actifs du graphique 6, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    # Dernière ligne : filtres propres au graphique 6 (seuils, petits / grands logements).
+    _SEUILS = valeurs_actives(choix_seuils_6)
+    _EXCLUS = (["petits"] if exclure_petits_6.value else []) + (["grands"] if exclure_grands_6.value else [])
+
+    resume_filtres(parametres_graphique={"Graphique 6": [
+        f"seuils {', '.join(_SEUILS) if _SEUILS else 'tous'}",
+        f"logements {' et '.join(_EXCLUS)} exclus" if _EXCLUS else "tous logements (petits et grands inclus)",
+    ]})
     return
 
 
