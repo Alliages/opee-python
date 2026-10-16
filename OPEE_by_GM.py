@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99e"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "16/10/2026 12:00"
+    VERSION = "0.99f"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "16/10/2026 03:40"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Nouveau graphique 6 : nombre de fiches par lot RE2020 (barres à 100 %) et par nature de fiche (FDES, FDES configurée, PEP, PEP extrapolée, DED, forfaitaire, autres), nombre moyen de fiches par bâtiment à droite ; fiches lues dans le Parquet DATA/composants_logements_collectifs_2026-10-16.parquet (logements collectifs), mêmes filtres que le graphique 5 (dont l'année de dépôt), petits et grands logements exclus par défaut ; anciens graphiques 6 à 10 renumérotés 7 à 11"),
+        (VERSION, "Graphique 5 corrigé : empilement de tous les types de fiches du total (FDES, fiches configurées, PEP, PEP extrapolées, DED, autres ; nb_des exclu car hors total), valeurs écrites dans les segments, nouvelle palette (hachures pour les fiches configurées et les PEP extrapolées) ; colonne du milieu = total des fiches, point = médiane et barre = Q1 à Q3 (style du graphique 8)"),
+        ("0.99e", "Nouveau graphique 6 : nombre de fiches par lot RE2020 (barres à 100 %) et par nature de fiche (FDES, FDES configurée, PEP, PEP extrapolée, DED, forfaitaire, autres), nombre moyen de fiches par bâtiment à droite ; fiches lues dans le Parquet DATA/composants_logements_collectifs_2026-10-16.parquet (logements collectifs), mêmes filtres que le graphique 5 (dont l'année de dépôt), petits et grands logements exclus par défaut ; anciens graphiques 6 à 10 renumérotés 7 à 11"),
         ("0.99d", "Impression : panneaux de filtres, titres « Paramètres du graphique », commandes (interrupteurs, curseurs, listes, boutons) et boutons « Télécharger en CSV / JSON » non imprimés (l'encadré des filtres actifs reste) ; en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré (écran et impression)"),
         ("0.99c", "Graphique 10 : pourcentage affiché à côté de chaque part de 3 % ou plus (une décimale), nom de la catégorie ajouté au-dessus de 10 % (nom court, sans parenthèse) ; nouvelle palette du chauffage (chaudière aubergine, effet Joule ambre, réseau de chaleur lavande, poêle brun) pour la distinguer des 3 autres donuts"),
         ("0.99b", "Bouton « Imprimer / PDF » (anywidget) : sur molab le notebook est affiché dans un cadre et Ctrl+P n'imprimait que la 1re page ; le bouton imprime le notebook entier, réduit les graphiques à la largeur de la page (graphiques 3 et 10 coupés sinon) et masque la barre Plotly (dans le shadow DOM, hors de portée de la CSS de la page). Dépendance anywidget ajoutée"),
@@ -380,7 +381,7 @@ def liste_graphiques(mo):
         2: "Répartition de l'impact carbone du bâtiment par seuil RE2020 (kgCO₂e/m² sur 50 ans)",
         3: "Impact carbone des matériaux : IC composant moyen par lot, par seuil RE2020",
         4: "Médiane IC Composant par matériau de structure et par seuil RE2020",
-        5: "Q1 / Médiane / Q3 du nombre de fiches (FDES + PEP + DED) par seuil RE2020",
+        5: "Nombre de fiches ACV par type (Q1 / total / Q3) par seuil RE2020",
         6: "Nature des fiches par lot RE2020 (% du nombre de fiches)",
         7: "Écart des bâtiments aux seuils réglementaires (%)",
         8: "Stock de carbone par type de matériau de structure et seuil RE2020",
@@ -2461,17 +2462,22 @@ def graphique_5(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 5 — Q1 / Médiane / Q3 par seuil RE2020, empilé FDES + PEP + DED
+    # GRAPHIQUE 5 — Nombre de fiches ACV par type, Q1 / total / Q3 par seuil RE2020
     #
     # Part de DATA_brut (cellule d'extraction partagée) : AUCUN appel
     # réseau ici. Tous les filtres sont appliqués en polars, en temps réel.
     #
-    # Pour chaque seuil, 3 emplacements resserrés (Q1, Médiane, Q3) :
-    #   - Q1 et Q3 : barres empilées (nb_fdes, nb_pep, nb_ded), hauteur de
-    #     chaque segment = le quartile (25% ou 75%) de CETTE variable.
-    #   - Médiane : 3 points noirs, aux mêmes hauteurs cumulées qu'aurait une
-    #     barre empilée des médianes (donc Q1/Médiane/Q3 sont juste les 3
-    #     quartiles de chaque variable, empilés de façon cohérente).
+    # Définition du total (vérifiée le 15/10/2026 sur tous les logements collectifs,
+    # script de contrôle OPEE_Test_Fiches) :
+    #     nb_total_fiche_acv = somme de TOUTES les colonnes nb_* SAUF nb_des
+    # nb_des n'est donc pas tracé (il serait compté deux fois).
+    #
+    # Pour chaque seuil, 3 emplacements resserrés :
+    #   - Q1 et Q3 : barres empilées par type de fiche ; hauteur de chaque segment =
+    #     le quartile (25 % ou 75 %) de CE type. « Σ » au-dessus = somme de ces
+    #     quartiles (ce n'est PAS le quartile du total).
+    #   - Total (au milieu) : total des fiches calculé ci-dessus, style du graphique 8 :
+    #     point = médiane, barre = de Q1 à Q3 (vrais quartiles du total).
     # ============================================================================
 
 
@@ -2484,10 +2490,44 @@ def graphique_5(
     # (les autres filtres viennent de la cellule `filtres_communs`)
 
 
-    # --- Les 3 variables empilées, et leurs noms d'affichage --------------------
-    _VARIABLES = ["nb_fdes", "nb_pep", "nb_ded"]
-    _NOMS_AFFICHES = {"nb_fdes": "Nombre de FDES", "nb_pep": "Nombre de PEP", "nb_ded": "Nombre de DED"}
-    _COULEURS_VARIABLES = {"nb_fdes": "#4C72B0", "nb_pep": "#DD8452", "nb_ded": "#55A868"}
+    # --- Segments empilés, de bas en haut : {nom affiché : colonnes additionnées} --
+    # Les 6 segments couvrent exactement les colonnes du total (toutes sauf nb_des).
+    _SEGMENTS = {
+        "FDES": ["nb_fdes"],
+        "Fiches configurées": ["nb_fiche_configuree"],
+        "PEP": ["nb_pep"],
+        "PEP extrapolées": ["nb_pep_extrapolee"],
+        "DED": ["nb_ded"],
+        "Autres": ["nb_conventionnelle", "nb_composant_reemploi", "nb_composant_vide"],
+    }
+    _COL_TOTAL = "_total_fiches"       # colonne de travail : total calculé par bâtiment
+
+    # --- Couleurs (palette validée par Guigui le 15/10/2026) ----------------------
+    # FDES / PEP : teinte des fiches individuelles (la table bâtiment ne distingue pas
+    # individuelles et collectives).
+    _COULEURS_SEGMENTS = {
+        "FDES": "#55A868",                # vert
+        "Fiches configurées": "#4C72B0",  # fond bleu (hachures vertes, cf. _HACHURES)
+        "PEP": "#4C72B0",                 # bleu
+        "PEP extrapolées": "#4C72B0",     # bleu hachuré (cf. _HACHURES)
+        "DED": "#DD8452",                 # orange
+        "Autres": "#CFCFCF",              # gris clair
+    }
+    # Segments hachurés : {segment : (motif, couleur des hachures, couleur du fond)}
+    #   - Fiches configurées : une fiche configurée est une FDES ou une PEP
+    #     -> hachures vertes (FDES) sur fond bleu (PEP)
+    #   - PEP extrapolées : hachures bleues sur fond blanc
+    _HACHURES = {
+        "Fiches configurées": ("/", "#55A868", "#4C72B0"),
+        "PEP extrapolées": ("/", "#4C72B0", "white"),
+    }
+    _TAILLE_HACHURES = 9
+    _DENSITE_HACHURES = 0.5
+    _COULEUR_TEXTE_SEGMENTS = {
+        "FDES": "white", "Fiches configurées": "white", "PEP": "white",
+        "PEP extrapolées": "#1F3A66", "DED": "white", "Autres": "#333333",
+    }
+    _COULEUR_TOTAL = "#333333"         # point et barre du total
 
     # --- Seuils (Inconnu inclus par défaut, sauf si la case "cacher" est cochée)
     _ORDRE_SEUILS = ["RE2022", "RE2025", "RE2028", "RE2031", "Inconnu"]
@@ -2496,6 +2536,7 @@ def graphique_5(
     _LARGEUR_BARRE = 0.28      # largeur de chaque colonne Q1/Q3
     _ESPACE_ENTRE_SEUILS = 0.9  # espace entre deux groupes de seuil
     _TAILLE_TITRE_GRAPHIQUE = 20
+    _TAILLE_MIN_TEXTE = 10     # px : valeur masquée si elle ne tient pas dans son segment (visible au survol)
 
 
     # ============================================================================
@@ -2506,16 +2547,27 @@ def graphique_5(
 
     mo.stop(_df.height == 0, mo.md("**Aucun bâtiment ne correspond aux filtres choisis.**"))
 
+    # Valeur de chaque segment (somme de ses colonnes) et total calculé.
+    # ignore_nulls=False : une colonne NULL rend le segment NULL ; il est alors ignoré
+    # par les quartiles (au lieu d'être compté comme 0).
+    _df = _df.with_columns(
+        [pl.sum_horizontal(_cols, ignore_nulls=False).alias(_seg) for _seg, _cols in _SEGMENTS.items()]
+    ).with_columns(
+        pl.sum_horizontal(list(_SEGMENTS), ignore_nulls=False).alias(_COL_TOTAL)
+    )
+
 
     # ============================================================================
-    # 2. AGRÉGATION : quartiles (25/50/75 %) de chaque variable, par seuil
+    # 2. AGRÉGATION : quartiles de chaque segment et du total, par seuil
     # ============================================================================
 
     _agg = _df.group_by("seuil").agg(
         pl.len().alias("nb_batiments"),
-        *[pl.col(v).quantile(0.25).alias(f"{v}_q1") for v in _VARIABLES],
-        *[pl.col(v).quantile(0.5).alias(f"{v}_median") for v in _VARIABLES],
-        *[pl.col(v).quantile(0.75).alias(f"{v}_q3") for v in _VARIABLES],
+        *[pl.col(s).quantile(0.25).alias(f"{s}_q1") for s in _SEGMENTS],
+        *[pl.col(s).quantile(0.75).alias(f"{s}_q3") for s in _SEGMENTS],
+        pl.col(_COL_TOTAL).quantile(0.25).alias("total_q1"),
+        pl.col(_COL_TOTAL).median().alias("total_mediane"),
+        pl.col(_COL_TOTAL).quantile(0.75).alias("total_q3"),
     )
 
     _seuils = [s for s in _ORDRE_SEUILS if s in _agg["seuil"].to_list()]
@@ -2528,8 +2580,8 @@ def graphique_5(
 
     _fig = go.Figure()
 
-    # Positions x : Q1 et Q3 collés à la Médiane (au milieu), gros espace entre
-    # les groupes de seuils.
+    # Positions x : Q1 et Q3 de part et d'autre du total (au milieu), gros espace
+    # entre les groupes de seuils.
     _pas_groupe = 3 * _LARGEUR_BARRE + _ESPACE_ENTRE_SEUILS
     _centres = {s: i * _pas_groupe for i, s in enumerate(_seuils)}
 
@@ -2539,51 +2591,68 @@ def graphique_5(
     for _seuil in _seuils:
         _ligne = _par_seuil[_seuil]
         _x_q1 = _centres[_seuil]
-        _x_median = _x_q1 + _LARGEUR_BARRE
+        _x_total = _x_q1 + _LARGEUR_BARRE
         _x_q3 = _x_q1 + 2 * _LARGEUR_BARRE
 
-        # --- Colonnes Q1 et Q3 (empilées) --------------------------------------
+        # --- Colonnes Q1 et Q3 (empilées, valeur écrite dans chaque segment) ---
         for _quantile, _x in (("q1", _x_q1), ("q3", _x_q3)):
             _bas = 0
-            for _var in _VARIABLES:
-                _valeur = _ligne[f"{_var}_{_quantile}"] or 0
+            for _seg in _SEGMENTS:
+                _valeur = _ligne[f"{_seg}_{_quantile}"] or 0
+                _hachure = _HACHURES.get(_seg)
                 _fig.add_trace(go.Bar(
                     x=[_x], y=[_valeur], base=_bas, width=_LARGEUR_BARRE,
-                    marker_color=_COULEURS_VARIABLES[_var],
-                    name=_NOMS_AFFICHES[_var],
-                    legendgroup=_var,
+                    marker=dict(
+                        color=_hachure[2] if _hachure else _COULEURS_SEGMENTS[_seg],
+                        line=dict(color="white", width=0.6),
+                        pattern=dict(shape=_hachure[0], fgcolor=_hachure[1], bgcolor=_hachure[2],
+                                     size=_TAILLE_HACHURES, solidity=_DENSITE_HACHURES) if _hachure else None,
+                    ),
+                    text=[f"{_valeur:.0f}" if _valeur > 0 else ""],
+                    textposition="inside", insidetextanchor="middle",
+                    textfont=dict(color=_COULEUR_TEXTE_SEGMENTS[_seg], size=11,
+                                  weight="bold" if _hachure else "normal"),
+                    name=_seg,
+                    legendgroup=_seg,
                     showlegend=(_seuil == _seuils[0] and _quantile == "q1"),
-                    hovertemplate=f"{_NOMS_AFFICHES[_var]}<br>{_seuil} ({_quantile.upper()}) : %{{y:.1f}}<extra></extra>",
+                    hovertemplate=f"{_seg}<br>{_seuil} ({_quantile.upper()}) : %{{y:.1f}}<extra></extra>",
                 ))
                 _bas += _valeur
             _annotations.append(dict(
-                x=_x, y=_bas, text=f"<b>{_bas:.0f}</b>", showarrow=False, yshift=10, font=dict(size=12),
+                x=_x, y=_bas, text=f"<b>Σ {_bas:.0f}</b>", showarrow=False, yshift=10, font=dict(size=12),
             ))
 
-        # --- 3 points noirs de la médiane, aux hauteurs cumulées ----------------
-        _bas = 0
-        _y_points = []
-        for _var in _VARIABLES:
-            _bas += _ligne[f"{_var}_median"] or 0
-            _y_points.append(_bas)
-        _fig.add_trace(go.Scatter(
-            x=[_x_median] * 3, y=_y_points, mode="markers",
-            marker=dict(color="black", size=9, symbol="circle"),
-            name="Médiane", legendgroup="mediane",
-            showlegend=(_seuil == _seuils[0]),
-            hovertemplate="Médiane cumulée : %{y:.1f}<extra></extra>",
-        ))
-        _annotations.append(dict(
-            x=_x_median, y=_bas, text=f"<b>{_bas:.0f}</b>", showarrow=False, yshift=10, font=dict(size=12),
-        ))
+        # --- Total (au milieu) : point = médiane, barre = Q1 à Q3 (style graphique 8)
+        _q1_t, _med_t, _q3_t = _ligne["total_q1"], _ligne["total_mediane"], _ligne["total_q3"]
+        if _med_t is not None:
+            _fig.add_trace(go.Scatter(
+                x=[_x_total], y=[_med_t], mode="markers",
+                marker=dict(size=12, color=_COULEUR_TOTAL, line=dict(color="black", width=1)),
+                error_y=dict(
+                    type="data", symmetric=False, thickness=3, width=12, color=_COULEUR_TOTAL,
+                    array=[_q3_t - _med_t], arrayminus=[_med_t - _q1_t],
+                ),
+                name="Total des fiches (point = médiane, barre = Q1 à Q3)",
+                legendgroup="total",
+                showlegend=(_seuil == _seuils[0]),
+                hovertemplate=(
+                    f"<b>Total des fiches — {_seuil}</b><br>Q1 = {_q1_t:.0f}<br>"
+                    f"Médiane = {_med_t:.0f}<br>Q3 = {_q3_t:.0f}<extra></extra>"
+                ),
+            ))
+            # Médiane écrite à gauche du point
+            _annotations.append(dict(
+                x=_x_total, y=_med_t, xshift=-12, xanchor="right", showarrow=False,
+                text=f"<b>{_med_t:.0f}</b>", font=dict(size=12, color=_COULEUR_TOTAL),
+            ))
 
-        # --- Étiquettes Q1 / Q3 sous les barres ---------------------------------
-        _tickvals += [_x_q1, _x_q3]
-        _ticktext += ["Q1", "Q3"]
+        # --- Étiquettes Q1 / Total / Q3 sous les colonnes -----------------------
+        _tickvals += [_x_q1, _x_total, _x_q3]
+        _ticktext += ["Q1", "Total", "Q3"]
 
         # --- Nom du seuil, centré sous le groupe --------------------------------
         _annotations.append(dict(
-            x=_x_median, y=0, yref="paper", yshift=-42, showarrow=False,
+            x=_x_total, y=0, yref="paper", yshift=-50, showarrow=False,
             text=f"<b>{_seuil}</b><br><span style='font-size:11px;color:gray'>n = {_ligne['nb_batiments']}</span>",
             font=dict(size=13),
         ))
@@ -2591,26 +2660,28 @@ def graphique_5(
     _fig.update_layout(
         barmode="overlay",  # les barres sont déjà positionnées par base=..., pas de superposition
         template="plotly_white",
-        height=560,
+        height=600,
+        uniformtext=dict(minsize=_TAILLE_MIN_TEXTE, mode="hide"),
         title=dict(
             text=f"<b>Graphique 5 — {GRAPHIQUES[5]} — {_USAGE}</b><br>"
-                 f"<sup>Empilement Nombre de FDES + Nombre de PEP + Nombre de DED</sup><br>"
+                 f"<sup>Q1 / Q3 : quartile de chaque type de fiche, empilés (Σ = somme des quartiles) ; "
+                 f"Total : toutes les fiches sauf DES (point = médiane, barre = Q1 à Q3)</sup><br>"
                  f"<sup>{SOUS_TITRE_FILTRES}</sup>",
             font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
         ),
         xaxis=dict(
             tickvals=_tickvals, ticktext=_ticktext, tickfont=dict(size=10, color="gray"),
-            range=[-_LARGEUR_BARRE, max(_centres.values()) + 2 * _LARGEUR_BARRE + _LARGEUR_BARRE],
+            range=[-_LARGEUR_BARRE, max(_centres.values()) + 3 * _LARGEUR_BARRE],
         ),
         yaxis=dict(title="Nombre de fiches"),
-        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.22, yanchor="top"),
-        margin=dict(t=130, b=110, l=60, r=20),
+        legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top"),
+        margin=dict(t=130, b=140, l=60, r=20),
         annotations=_annotations,
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
-    # Export : les données TRACÉES (Q1 / médiane / Q3 de chaque variable, par seuil)
+    # Export : les données TRACÉES (Q1 / Q3 de chaque segment, Q1 / médiane / Q3 du total, par seuil)
     _export = _agg.sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99))
     mo.vstack([_graphique, boutons_export(_export, "graphique_5_quartiles_fiches_par_seuil")])
     return
