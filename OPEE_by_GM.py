@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99h"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "18/10/2026 01:50"
+    VERSION = "0.99i"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "18/10/2026 14:01"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Graphique 10 (DH) : choix de l'unité « Zone du bâtiment » (comme avant) ou « Bâtiment » (dh_batiment, sans séparation traversant / non traversant) ; exports : tableau (en mode bâtiment, Q1 / médiane / Q3 par zone climatique) + export brut (une ligne par point tracé) ; filtres actifs sous le graphique"),
+        (VERSION, "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : page de garde (visuel, version, encarts OPEE, liens vers le HUB, liste des graphiques), puis une page par graphique (graphique + filtres actifs) ; masqués en plus : historique des versions, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1 ; page de garde tenue sur une page (visuel du HUB réduit à 540 px, marges des cellules masquées supprimées à l'impression)"),
+        ("0.99h", "Graphique 10 (DH) : choix de l'unité « Zone du bâtiment » (comme avant) ou « Bâtiment » (dh_batiment, sans séparation traversant / non traversant) ; exports : tableau (en mode bâtiment, Q1 / médiane / Q3 par zone climatique) + export brut (une ligne par point tracé) ; filtres actifs sous le graphique"),
         ("0.99g", "Graphique 6 : filtre des seuils IC construction atteints (RE2022, RE2025, RE2028, RE2031) ; sous le graphique, en gros chiffres, part des FDES / PEP (individuelles, collectives, configurées…) face aux DED + forfaitaire pour le gros œuvre (lots 2-3, bleu), le second œuvre (lots 4-7, rouge) et les lots techniques (lots 8-13, vert), couleurs du graphique 3 ; encadré des filtres actifs placé sous le graphique"),
         ("0.99f", "Graphique 5 corrigé : empilement de tous les types de fiches du total (FDES, fiches configurées, PEP, PEP extrapolées, DED, autres ; nb_des exclu car hors total), valeurs écrites dans les segments, nouvelle palette (hachures pour les fiches configurées et les PEP extrapolées) ; colonne du milieu = total des fiches, point = médiane et barre = Q1 à Q3 (style du graphique 8)"),
         ("0.99e", "Nouveau graphique 6 : nombre de fiches par lot RE2020 (barres à 100 %) et par nature de fiche (FDES, FDES configurée, PEP, PEP extrapolée, DED, forfaitaire, autres), nombre moyen de fiches par bâtiment à droite ; fiches lues dans le Parquet DATA/composants_logements_collectifs_2026-10-16.parquet (logements collectifs), mêmes filtres que le graphique 5 (dont l'année de dépôt), petits et grands logements exclus par défaut ; anciens graphiques 6 à 10 renumérotés 7 à 11"),
@@ -189,7 +190,13 @@ def entete_et_imports():
     _lignes = "\n".join(f"- **{_v}** · {_t}" for _v, _t in HISTORIQUE_VERSIONS)
     _historique = mo.accordion({"Historique des versions": mo.md(_lignes)})
 
-    mo.vstack([mo.Html(_visuel + _version + _cartes + _rangee_liens), _historique])
+    # Impression (page de garde) : visuel, version, encarts et liens vers le HUB.
+    # Seul l'accordéon de l'historique (replié, donc vide sur papier) n'est pas
+    # imprimé (classe « pas-imprime », cf. cellule style_impression).
+    mo.vstack([
+        mo.Html(_visuel + _version + _cartes + _rangee_liens),
+        mo.Html('<div class="pas-imprime">' + _historique.text + '</div>'),
+    ])
     return go, mo, pl, px
 
 
@@ -215,9 +222,13 @@ def style_impression(mo):
     # Dans la boîte d'impression de Chrome (« Plus de paramètres ») :
     #   - cocher « Graphiques d'arrière-plan » (sinon les couleurs de fond disparaissent)
     #   - décocher « En-têtes et pieds de page » (URL et date sur chaque page)
+    # Imprimés : page de garde (visuel, version, encarts OPEE / base fille, liens
+    # vers le HUB, liste des graphiques), puis pour chaque graphique, sur sa page :
+    # le graphique et l'encadré des filtres actifs (sous le graphique).
     # Non imprimés : panneaux de filtres et commandes (interrupteurs, curseurs, listes,
-    # boutons), boutons « Télécharger en CSV / JSON ». L'encadré des filtres actifs
-    # reste imprimé. L'en-tête est réduit à la largeur de la page.
+    # boutons), boutons « Télécharger en CSV / JSON » (et leurs liens) et leurs
+    # intitulés, historique des versions, jeton et tables de la base, choix de la
+    # typologie, rappel du filtre de surface, aperçu des tables.
     # Pour masquer le code : imprimer en mode application (mode « run » de molab).
     # Les sauts de page sont posés par les cellules `saut_page_N` (avant chaque graphique).
     # ============================================================================
@@ -230,6 +241,9 @@ def style_impression(mo):
     # En paysage : environ 1000 x 650.
     _LARGEUR_MAX_GRAPHIQUE_PX = 680
     _HAUTEUR_MAX_GRAPHIQUE_PX = 900
+    # Largeur du visuel du HUB à l'impression : la page de garde (visuel, encarts,
+    # liens, liste des graphiques) doit tenir sur UNE page A4
+    _LARGEUR_VISUEL_IMPRIME_PX = 540
     _LIBELLE_BOUTON = "🖨 Imprimer / PDF"
     _AIDE_BOUTON = ("Imprime le notebook entier : attendre que tous les graphiques soient affichés, "
                     "puis choisir « Enregistrer au format PDF ». Dans « Plus de paramètres » : "
@@ -281,12 +295,19 @@ def style_impression(mo):
         .imprime-seul {{ display: block !important; }}
 
         /* En-tête : visuel ramené à la largeur de la page, encarts sur une ligne */
-        .visuel-hub {{ width: {_LARGEUR_MAX_GRAPHIQUE_PX}px !important; max-width: 100% !important; }}
+        .visuel-hub {{ width: {_LARGEUR_VISUEL_IMPRIME_PX}px !important; max-width: 100% !important; }}
         .carte-hub {{ min-width: 0 !important; padding: 10px 12px !important; }}
         .carte-hub > div:last-child {{ font-size: 12px !important; }}
 
         /* Saut de page forcé (cellules `saut_page_N`) */
         .saut-page {{ break-before: page; page-break-before: always; height: 0; }}
+
+        /* Pas de marge verticale autour des sorties de cellules : sinon les cellules
+           dont tout le contenu est masqué laissent chacune ~30 px de blanc, ce qui
+           fait déborder la page de garde (page blanche avant le graphique 1) */
+        .marimo-cell .output {{ margin-top: 0 !important; margin-bottom: 0 !important; }}
+        /* ... un peu d'air conservé entre un graphique et ses filtres actifs */
+        .marimo-cell:has(marimo-plotly) {{ margin-bottom: 10px !important; }}
     }}
     """
 
@@ -396,6 +417,7 @@ def liste_graphiques(mo):
     # ajoute le bouton « Download plot as JSON » (modeBarButtonsToAdd).
     CONFIG_PLOTLY = {"modeBarButtonsToAdd": ["downloadJson"]}
 
+    # Imprimée : sommaire de la page de garde
     mo.md(
         "### Graphiques du dashboard\n\n"
         + "\n".join(f"- Graphique {_n} — {_titre}" for _n, _titre in GRAPHIQUES.items())
@@ -413,11 +435,12 @@ def saisie_jeton(mo):
     import os
 
     champ_jeton = mo.ui.text(kind="password", label="Jeton Turso", full_width=True)
-    (
+    # (non imprimé : classe « pas-imprime »)
+    mo.Html('<div class="pas-imprime">' + (
         mo.md("*Jeton Turso lu dans la variable d'environnement `TURSO_TOKEN`.*")
         if os.environ.get("TURSO_TOKEN")
         else mo.vstack([mo.md("### Connexion à la base OPEE"), champ_jeton])
-    )
+    ).text + '</div>')
     return (champ_jeton,)
 
 
@@ -464,7 +487,7 @@ def creation_connect(champ_jeton, mo):
     _table = mo.ui.table(_df_comptages, show_download=False)
     _table
     """
-    _result
+    mo.Html('<div class="pas-imprime">' + _result.text + '</div>')   # (non imprimé)
     return noms_tables, turso_conn
 
 
@@ -682,12 +705,13 @@ def choisir_typo(mo):
     )
     button_lancer = mo.ui.run_button(label="---> lancer la calcul <----")
 
-    mo.vstack([
+    # (non imprimé : l'usage figure dans le titre de chaque graphique)
+    mo.Html('<div class="pas-imprime">' + mo.vstack([
         mo.md("### Pour quelle typologie ?"),
         dropdown_usage,
         mo.md(f"\n\n\n{button_lancer}"),
         mo.md("*🔽 cliquer pour lancer si rien ne s'affiche 🔽*")
-    ])
+    ]).text + '</div>')
     return button_lancer, dropdown_usage
 
 
@@ -1106,7 +1130,8 @@ def rappel_filtre_surface(MODE_SURFACE_SREF, choix_mode_surface, choix_sref, mo)
         _texte = f"**Filtre de surface appliqué : `sref`** — entre {choix_sref.value[0]} et {choix_sref.value[1]} m². Les tranches `sref_approx` sont ignorées."
     else:
         _texte = "**Filtre de surface appliqué : `sref_approx`** (tranches). Le curseur `sref` est ignoré."
-    mo.callout(mo.md(_texte), kind="info")
+    # (non imprimé : le filtre de surface figure dans l'encadré des filtres actifs)
+    mo.Html('<div class="pas-imprime">' + mo.callout(mo.md(_texte), kind="info").text + '</div>')
     return
 
 
@@ -1195,6 +1220,15 @@ def panneau_filtres_def(
 
 
 @app.cell(hide_code=True)
+def saut_page_1(mo):
+    # Saut de page à l'impression avant le graphique 1 : la 1re page imprimée est la
+    # page de garde (visuel, version, encarts, liens vers le HUB, liste des
+    # graphiques). Aucun effet à l'écran.
+    mo.Html('<div class="saut-page"></div>')
+    return
+
+
+@app.cell(hide_code=True)
 def param_graphique_1(mo, panneau_filtres):
     # Paramètre propre au graphique 1
     seuil_bas_iccons = mo.ui.slider(start=400, stop=700, step=50, show_value=True, label="La tranche basse de l'ic_construction pour séparer les projets ?")
@@ -1210,14 +1244,6 @@ def param_graphique_1(mo, panneau_filtres):
     ])
     return (seuil_bas_iccons,)
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_1(resume_filtres):
-    # Résumé des filtres actifs du graphique 1 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres()
-    return
 
 
 @app.cell(hide_code=True)
@@ -1359,6 +1385,14 @@ def graphique_1(
 
     # Export : les données TRACÉES (nombre de bâtiments par seuil x tranche d'IC)
     mo.vstack([_graphique, boutons_export(_agg.sort("seuil", "tranche_ic"), "graphique_1_batiments_par_tranche_ic")])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_1(resume_filtres):
+    # Résumé des filtres actifs du graphique 1, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres()
     return
 
 
@@ -1690,14 +1724,6 @@ def param_graphique_2(mo, panneau_filtres):
 
 
 @app.cell(hide_code=True)
-def resume_filtres_graphique_2(resume_filtres):
-    # Résumé des filtres actifs du graphique 2 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres(avec_inconnus=False)
-    return
-
-
-@app.cell(hide_code=True)
 def graphique_2(
     CONFIG_PLOTLY,
     GRAPHIQUES,
@@ -1957,6 +1983,14 @@ def graphique_2(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_2(resume_filtres):
+    # Résumé des filtres actifs du graphique 2, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres(avec_inconnus=False)
+    return
+
+
+@app.cell(hide_code=True)
 def saut_page_3(mo):
     # Saut de page à l'impression avant le graphique 3 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
@@ -1980,14 +2014,6 @@ def param_graphique_3(mo, panneau_filtres):
     ])
     return (valeur_exclusion_lots,)
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_3(resume_filtres):
-    # Résumé des filtres actifs du graphique 3 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres()
-    return
 
 
 @app.cell(hide_code=True)
@@ -2210,6 +2236,14 @@ def graphique_3(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_3(resume_filtres):
+    # Résumé des filtres actifs du graphique 3, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres()
+    return
+
+
+@app.cell(hide_code=True)
 def saut_page_4(mo):
     # Saut de page à l'impression avant le graphique 4 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
@@ -2230,14 +2264,6 @@ def param_graphique_4(mo, panneau_filtres):
     ])
     return
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_4(resume_filtres):
-    # Résumé des filtres actifs du graphique 4 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres(avec_materiau=False)
-    return
 
 
 @app.cell(hide_code=True)
@@ -2429,6 +2455,14 @@ def graphique_4(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_4(resume_filtres):
+    # Résumé des filtres actifs du graphique 4, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres(avec_materiau=False)
+    return
+
+
+@app.cell(hide_code=True)
 def saut_page_5(mo):
     # Saut de page à l'impression avant le graphique 5 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
@@ -2448,14 +2482,6 @@ def param_graphique_5(mo, panneau_filtres):
     ])
     return
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_5(resume_filtres):
-    # Résumé des filtres actifs du graphique 5 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres()
-    return
 
 
 @app.cell(hide_code=True)
@@ -2694,6 +2720,14 @@ def graphique_5(
     # Export : les données TRACÉES (Q1 / Q3 de chaque segment, Q1 / médiane / Q3 du total, par seuil)
     _export = _agg.sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99))
     mo.vstack([_graphique, boutons_export(_export, "graphique_5_quartiles_fiches_par_seuil")])
+    return
+
+
+@app.cell(hide_code=True)
+def resume_filtres_graphique_5(resume_filtres):
+    # Résumé des filtres actifs du graphique 5, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres()
     return
 
 
@@ -3142,11 +3176,11 @@ def graphique_6(
     mo.vstack([
         _graphique,
         _gros_chiffres,
-        mo.md("**Valeurs du graphique**"),
+        mo.Html('<div class="pas-imprime">' + mo.md("**Valeurs du graphique**").text + '</div>'),
         boutons_export(_valeurs, "graphique_6_nature_fiches_par_lot"),
-        mo.md("**Parts FDES / PEP et DED + forfaitaire par macro-lot**"),
+        mo.Html('<div class="pas-imprime">' + mo.md("**Parts FDES / PEP et DED + forfaitaire par macro-lot**").text + '</div>'),
         boutons_export(_parts_macro, "graphique_6_parts_par_macro_lot"),
-        mo.md("**Détail par bâtiment, lot, sous-lot et nature**"),
+        mo.Html('<div class="pas-imprime">' + mo.md("**Détail par bâtiment, lot, sous-lot et nature**").text + '</div>'),
         boutons_export(_detail, "graphique_6_detail_par_batiment"),
     ])
     return
@@ -3203,14 +3237,6 @@ def param_graphique_7(mo, panneau_filtres):
     ])
     return (choix_seuil,)
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_7(resume_filtres):
-    # Résumé des filtres actifs du graphique 7 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres()
-    return
 
 
 @app.cell(hide_code=True)
@@ -3554,6 +3580,14 @@ def graphique_7(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_7(resume_filtres):
+    # Résumé des filtres actifs du graphique 7, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres()
+    return
+
+
+@app.cell(hide_code=True)
 def saut_page_8(mo):
     # Saut de page à l'impression avant le graphique 8 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
@@ -3590,14 +3624,6 @@ def param_graphique_8(mo, panneau_filtres):
     ])
     return choix_seuil_stock_c, choix_y_max_stock_c
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_8(resume_filtres):
-    # Résumé des filtres actifs du graphique 8 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres(avec_materiau=False)
-    return
 
 
 @app.cell(hide_code=True)
@@ -3803,6 +3829,14 @@ def graphique_8(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_8(resume_filtres):
+    # Résumé des filtres actifs du graphique 8, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres(avec_materiau=False)
+    return
+
+
+@app.cell(hide_code=True)
 def saut_page_9(mo):
     # Saut de page à l'impression avant le graphique 9 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
@@ -3851,14 +3885,6 @@ def param_graphique_9(mo, panneau_filtres):
     ])
     return cacher_autre_7, choix_ecart_max_2028, choix_variable_categorielle_7
 
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_9(resume_filtres):
-    # Résumé des filtres actifs du graphique 9 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres(avec_materiau=False, avec_inconnus=False)
-    return
 
 
 @app.cell(hide_code=True)
@@ -4261,6 +4287,14 @@ def graphique_8_categoriel(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_9(resume_filtres):
+    # Résumé des filtres actifs du graphique 9, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres(avec_materiau=False, avec_inconnus=False)
+    return
+
+
+@app.cell(hide_code=True)
 def saut_page_10(mo):
     # Saut de page à l'impression avant le graphique 10 (aucun effet à l'écran ;
     # règle `.saut-page` dans la cellule `style_impression`).
@@ -4650,9 +4684,9 @@ def graphique_10(
 
     mo.vstack([
         _graphique,
-        mo.md(f"**Tableau ({'Q1 / médiane / Q3 par zone climatique' if _PAR_BATIMENT else 'statistiques par zone climatique et type de zone'})**"),
+        mo.Html('<div class="pas-imprime">' + mo.md(f"**Tableau ({'Q1 / médiane / Q3 par zone climatique' if _PAR_BATIMENT else 'statistiques par zone climatique et type de zone'})**").text + '</div>'),
         boutons_export(_export_tableau, f"{_nom}_tableau"),
-        mo.md(f"**Export brut (une ligne par {_UNITE} tracé{'' if _PAR_BATIMENT else 'e'})**"),
+        mo.Html('<div class="pas-imprime">' + mo.md(f"**Export brut (une ligne par {_UNITE} tracé{'' if _PAR_BATIMENT else 'e'})**").text + '</div>'),
         boutons_export(_export_brut, f"{_nom}_brut"),
     ])
     return
@@ -4708,14 +4742,6 @@ def param_graphique_11(mo, panneau_filtres):
         ),
     ])
     return choix_nb_categories_10, masquer_non_renseignes_10
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_11(resume_filtres):
-    # Résumé des filtres actifs du graphique 11 (cellule séparée : il lit les valeurs
-    # des widgets, alors que le panneau ci-dessus reste statique).
-    resume_filtres(avec_inconnus=False)
-    return
 
 
 @app.cell(hide_code=True)
@@ -4998,6 +5024,14 @@ def graphique_11(
 
 
 @app.cell(hide_code=True)
+def resume_filtres_graphique_11(resume_filtres):
+    # Résumé des filtres actifs du graphique 11, placé SOUS le graphique (cellule
+    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
+    resume_filtres(avec_inconnus=False)
+    return
+
+
+@app.cell(hide_code=True)
 def param_apercu_tables(mo):
     # ============================================================================
     # CELLULE WIDGET — bouton de l'export "aperçu des tables"
@@ -5006,10 +5040,11 @@ def param_apercu_tables(mo):
 
     bouton_apercu_tables = mo.ui.run_button(label="Exporter l'aperçu des tables (10 premières lignes)")
 
-    mo.vstack([
+    # (non imprimé : classe « pas-imprime »)
+    mo.Html('<div class="pas-imprime">' + mo.vstack([
         mo.md("### Aperçu des tables de la base"),
         bouton_apercu_tables,
-    ])
+    ]).text + '</div>')
     return (bouton_apercu_tables,)
 
 
@@ -5048,7 +5083,8 @@ def apercu_tables(bouton_apercu_tables, mo, noms_tables, pl, turso_conn):
     # 1. LECTURE (uniquement après un clic sur le bouton)
     # ============================================================================
 
-    mo.stop(not bouton_apercu_tables.value, mo.md("*Clique sur le bouton pour lancer l'export.*"))
+    mo.stop(not bouton_apercu_tables.value,
+            mo.Html('<div class="pas-imprime">' + mo.md("*Clique sur le bouton pour lancer l'export.*").text + '</div>'))
 
     _apercus = {}      # nom de table -> DataFrame (10 premières lignes)
     _absentes = []     # tables demandées mais introuvables dans la base
@@ -5095,14 +5131,15 @@ def apercu_tables(bouton_apercu_tables, mo, noms_tables, pl, turso_conn):
         "colonnes": [_df.width for _df in _apercus.values()],
     })
 
-    mo.vstack([
+    # (non imprimé : classe « pas-imprime »)
+    mo.Html('<div class="pas-imprime">' + mo.vstack([
         mo.md(f"**{len(_apercus)} table(s) lues** — {_NB_LIGNES} premières lignes de chacune."),
         mo.md(f"⚠️ Tables introuvables dans la base : {', '.join(_absentes)}") if _absentes else mo.md(""),
         mo.ui.table(_resume, selection=None, show_download=False),
         _bouton_zip,
         mo.md("Ou table par table :"),
         mo.hstack(_boutons_csv, justify="start", wrap=True),
-    ])
+    ]).text + '</div>')
     return
 
 
