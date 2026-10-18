@@ -38,10 +38,10 @@ def entete_et_imports():
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
     VERSION = "0.99i"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "18/10/2026 13:52"
+    DATE_EDITION = "18/10/2026 14:01"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : seuls la page de garde (visuel + version), les graphiques et leurs filtres actifs sortent ; masqués : encarts, liens et historique de l'en-tête, liste des graphiques, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1"),
+        (VERSION, "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : page de garde (visuel, version, encarts OPEE, liens vers le HUB, liste des graphiques), puis une page par graphique (graphique + filtres actifs) ; masqués en plus : historique des versions, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1 ; page de garde tenue sur une page (visuel du HUB réduit à 540 px, marges des cellules masquées supprimées à l'impression)"),
         ("0.99h", "Graphique 10 (DH) : choix de l'unité « Zone du bâtiment » (comme avant) ou « Bâtiment » (dh_batiment, sans séparation traversant / non traversant) ; exports : tableau (en mode bâtiment, Q1 / médiane / Q3 par zone climatique) + export brut (une ligne par point tracé) ; filtres actifs sous le graphique"),
         ("0.99g", "Graphique 6 : filtre des seuils IC construction atteints (RE2022, RE2025, RE2028, RE2031) ; sous le graphique, en gros chiffres, part des FDES / PEP (individuelles, collectives, configurées…) face aux DED + forfaitaire pour le gros œuvre (lots 2-3, bleu), le second œuvre (lots 4-7, rouge) et les lots techniques (lots 8-13, vert), couleurs du graphique 3 ; encadré des filtres actifs placé sous le graphique"),
         ("0.99f", "Graphique 5 corrigé : empilement de tous les types de fiches du total (FDES, fiches configurées, PEP, PEP extrapolées, DED, autres ; nb_des exclu car hors total), valeurs écrites dans les segments, nouvelle palette (hachures pour les fiches configurées et les PEP extrapolées) ; colonne du milieu = total des fiches, point = médiane et barre = Q1 à Q3 (style du graphique 8)"),
@@ -190,11 +190,12 @@ def entete_et_imports():
     _lignes = "\n".join(f"- **{_v}** · {_t}" for _v, _t in HISTORIQUE_VERSIONS)
     _historique = mo.accordion({"Historique des versions": mo.md(_lignes)})
 
-    # Impression : seuls le visuel et la version sortent (page de garde) ; encarts,
-    # liens et historique sont marqués « pas-imprime » (cf. cellule style_impression).
+    # Impression (page de garde) : visuel, version, encarts et liens vers le HUB.
+    # Seul l'accordéon de l'historique (replié, donc vide sur papier) n'est pas
+    # imprimé (classe « pas-imprime », cf. cellule style_impression).
     mo.vstack([
-        mo.Html(_visuel + _version),
-        mo.Html('<div class="pas-imprime">' + _cartes + _rangee_liens + _historique.text + '</div>'),
+        mo.Html(_visuel + _version + _cartes + _rangee_liens),
+        mo.Html('<div class="pas-imprime">' + _historique.text + '</div>'),
     ])
     return go, mo, pl, px
 
@@ -221,12 +222,13 @@ def style_impression(mo):
     # Dans la boîte d'impression de Chrome (« Plus de paramètres ») :
     #   - cocher « Graphiques d'arrière-plan » (sinon les couleurs de fond disparaissent)
     #   - décocher « En-têtes et pieds de page » (URL et date sur chaque page)
-    # Imprimés : page de garde (visuel + version), puis pour chaque graphique, sur sa
-    # page : le graphique et l'encadré des filtres actifs (sous le graphique).
+    # Imprimés : page de garde (visuel, version, encarts OPEE / base fille, liens
+    # vers le HUB, liste des graphiques), puis pour chaque graphique, sur sa page :
+    # le graphique et l'encadré des filtres actifs (sous le graphique).
     # Non imprimés : panneaux de filtres et commandes (interrupteurs, curseurs, listes,
-    # boutons), boutons « Télécharger en CSV / JSON » et leurs intitulés, encarts /
-    # liens / historique de l'en-tête, liste des graphiques, jeton et tables de la
-    # base, choix de la typologie, rappel du filtre de surface, aperçu des tables.
+    # boutons), boutons « Télécharger en CSV / JSON » (et leurs liens) et leurs
+    # intitulés, historique des versions, jeton et tables de la base, choix de la
+    # typologie, rappel du filtre de surface, aperçu des tables.
     # Pour masquer le code : imprimer en mode application (mode « run » de molab).
     # Les sauts de page sont posés par les cellules `saut_page_N` (avant chaque graphique).
     # ============================================================================
@@ -239,6 +241,9 @@ def style_impression(mo):
     # En paysage : environ 1000 x 650.
     _LARGEUR_MAX_GRAPHIQUE_PX = 680
     _HAUTEUR_MAX_GRAPHIQUE_PX = 900
+    # Largeur du visuel du HUB à l'impression : la page de garde (visuel, encarts,
+    # liens, liste des graphiques) doit tenir sur UNE page A4
+    _LARGEUR_VISUEL_IMPRIME_PX = 540
     _LIBELLE_BOUTON = "🖨 Imprimer / PDF"
     _AIDE_BOUTON = ("Imprime le notebook entier : attendre que tous les graphiques soient affichés, "
                     "puis choisir « Enregistrer au format PDF ». Dans « Plus de paramètres » : "
@@ -290,12 +295,19 @@ def style_impression(mo):
         .imprime-seul {{ display: block !important; }}
 
         /* En-tête : visuel ramené à la largeur de la page, encarts sur une ligne */
-        .visuel-hub {{ width: {_LARGEUR_MAX_GRAPHIQUE_PX}px !important; max-width: 100% !important; }}
+        .visuel-hub {{ width: {_LARGEUR_VISUEL_IMPRIME_PX}px !important; max-width: 100% !important; }}
         .carte-hub {{ min-width: 0 !important; padding: 10px 12px !important; }}
         .carte-hub > div:last-child {{ font-size: 12px !important; }}
 
         /* Saut de page forcé (cellules `saut_page_N`) */
         .saut-page {{ break-before: page; page-break-before: always; height: 0; }}
+
+        /* Pas de marge verticale autour des sorties de cellules : sinon les cellules
+           dont tout le contenu est masqué laissent chacune ~30 px de blanc, ce qui
+           fait déborder la page de garde (page blanche avant le graphique 1) */
+        .marimo-cell .output {{ margin-top: 0 !important; margin-bottom: 0 !important; }}
+        /* ... un peu d'air conservé entre un graphique et ses filtres actifs */
+        .marimo-cell:has(marimo-plotly) {{ margin-bottom: 10px !important; }}
     }}
     """
 
@@ -405,11 +417,11 @@ def liste_graphiques(mo):
     # ajoute le bouton « Download plot as JSON » (modeBarButtonsToAdd).
     CONFIG_PLOTLY = {"modeBarButtonsToAdd": ["downloadJson"]}
 
-    # (non imprimé : classe « pas-imprime »)
-    mo.Html('<div class="pas-imprime">' + mo.md(
+    # Imprimée : sommaire de la page de garde
+    mo.md(
         "### Graphiques du dashboard\n\n"
         + "\n".join(f"- Graphique {_n} — {_titre}" for _n, _titre in GRAPHIQUES.items())
-    ).text + '</div>')
+    )
     return CONFIG_PLOTLY, GRAPHIQUES
 
 
@@ -1210,7 +1222,8 @@ def panneau_filtres_def(
 @app.cell(hide_code=True)
 def saut_page_1(mo):
     # Saut de page à l'impression avant le graphique 1 : la 1re page imprimée est la
-    # page de garde (visuel + version). Aucun effet à l'écran.
+    # page de garde (visuel, version, encarts, liens vers le HUB, liste des
+    # graphiques). Aucun effet à l'écran.
     mo.Html('<div class="saut-page"></div>')
     return
 
