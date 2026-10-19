@@ -3668,6 +3668,8 @@ def graphique_8(
     _CATEGORIE_BAS_CARBONE = "Bas Carbone"
     _CATEGORIE_RESTE = "Tout le reste"
     _CATEGORIES = [_CATEGORIE_BAS_CARBONE, _CATEGORIE_RESTE]
+    # Sous-titre expliquant le regroupement « Bas Carbone » (cf. MAPPING_MATERIAU)
+    _SOUS_TITRE_BAS_CARBONE = "Les bâtiments dont la structure est en bois, pierre ou terre crue sont « bas carbone »"
 
     _ORDRE_SEUILS = ["RE2022", "RE2025", "RE2028", "RE2031"]
     _COULEURS_SEUIL = {"RE2022": "#E2ADF2", "RE2025": "#B58BEA", "RE2028": "#8A6BE6", "RE2031": "#574AE2"}
@@ -3801,6 +3803,7 @@ def graphique_8(
         title=dict(
             text=(
                 f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
+                f"<sup>{_SOUS_TITRE_BAS_CARBONE}</sup><br>"
                 f"<sup>Pointillés : seuils du label bâtiment biosourcé 2024{_note_masquees}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -3817,7 +3820,7 @@ def graphique_8(
         ),
         yaxis=dict(title="Stock carbone (kg C/m² SDP)", range=[0, _Y_MAX]),
         legend=dict(title="Seuil RE2020", orientation="h", x=0.5, xanchor="center", y=-0.15, yanchor="top"),
-        margin=dict(t=170, b=100, l=60, r=20),
+        margin=dict(t=195, b=100, l=60, r=20),
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
