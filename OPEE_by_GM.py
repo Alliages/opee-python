@@ -4027,7 +4027,7 @@ def groupes_graphique_9(
 
 
 @app.cell(hide_code=True)
-def graphique_8_numerique(
+def graphique_9_numerique(
     DATA_groupes_7,
     CONFIG_PLOTLY,
     GRAPHIQUES,
@@ -4041,7 +4041,7 @@ def graphique_8_numerique(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 8 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
+    # GRAPHIQUE 9 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
     # les groupes 1a, 1b et 2, un panneau par indicateur (échelles indépendantes).
     # Le groupe 1 est scindé selon l'année de dépôt du permis (la plus ancienne du projet,
     # comme au graphique 7) : 1a = 2022-2023, 1b = 2024-2025. Les bâtiments du groupe 1
@@ -4173,7 +4173,7 @@ def graphique_8_numerique(
 
 
 @app.cell(hide_code=True)
-def graphique_8_categoriel(
+def graphique_9_categoriel(
     DATA_groupes_7,
     CONFIG_PLOTLY,
     GRAPHIQUES,
@@ -4188,7 +4188,7 @@ def graphique_8_categoriel(
     pl,
 ):
     # ============================================================================
-    # GRAPHIQUE 8 (partie catégorielle) — Répartition (%) d'une variable catégorielle
+    # GRAPHIQUE 9 (partie catégorielle) — Répartition (%) d'une variable catégorielle
     # dans chaque groupe : barres 100 % empilées, une barre par groupe.
     # Variables : zone climatique, type de structure principale, matériau de structure.
     # ============================================================================
