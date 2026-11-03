@@ -1,9 +1,11 @@
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.13,<3.14"
 # dependencies = [
 #     "anywidget",
 #     "libsql==0.1.11",
-#     "plotly",
+#     "marimo>=0.25.2",
+#     "numpy==2.5.4",
+#     "plotly[express]==7.1.0",
 #     "polars",
 #     "xlsxwriter==3.2.9",
 # ]
@@ -41,7 +43,7 @@ def entete_et_imports():
     DATE_EDITION = "03/11/2026 04:09"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Connexion à la base : bibliothèque libsql 0.1.11 à la place de libsql-experimental 0.0.55 (sans wheel Windows), même interface ; le notebook s'exécute aussi sous Windows"),
+        (VERSION, "Connexion à la base : bibliothèque libsql 0.1.11 à la place de libsql-experimental 0.0.55 (sans wheel Windows), même interface ; numpy et plotly[express] déclarés dans les dépendances (plotly.express plantait dans le sandbox sans numpy) ; Python limité à 3.13 (pas de wheel libsql Windows pour 3.14) ; le notebook s'exécute aussi sous Windows"),
         ("0.99j", "Charte HUB (template_hub.pptx) : palette unique PALETTE_HUB et police Aptos pour tous les graphiques ; filtre de surface unique (curseur sref 0 à 5 000 m², pas de 50, 150 à 5 000 par défaut) toujours visible, valable pour tous les usages (sref reconstituée en logement collectif, intervalles des maisons individuelles, valeur de l'enseignement ; sans effet pour les bureaux) — corrige l'erreur des usages autres que le logement collectif ; filtre « type d'attestation » supprimé (l'open data ne publie que des DAACT) ; effectif tracé affiché sur chaque graphique ; 70 -> 40 cellules (sauts de page dans les cellules de paramètres, encadré des filtres actifs dans les cellules graphiques, code mort supprimé) ; constantes et filtres communs placés avant le graphique 1 ; impression PDF : graphiques à largeur automatique figés avant réduction (n'étaient plus coupés à droite, graphiques 7 à 9) ; graphique 1 en largeur automatique (titre coupé)"),
         ("0.99i", "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : page de garde (visuel, version, encarts OPEE, liens vers le HUB, liste des graphiques), puis une page par graphique (graphique + filtres actifs) ; masqués en plus : historique des versions, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1 ; page de garde tenue sur une page (visuel du HUB réduit à 540 px, marges des cellules masquées supprimées à l'impression)"),
         ("0.99h", "Graphique 10 (DH) : choix de l'unité « Zone du bâtiment » (comme avant) ou « Bâtiment » (dh_batiment, sans séparation traversant / non traversant) ; exports : tableau (en mode bâtiment, Q1 / médiane / Q3 par zone climatique) + export brut (une ligne par point tracé) ; filtres actifs sous le graphique"),

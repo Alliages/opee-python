@@ -1,9 +1,11 @@
 # /// script
-# requires-python = ">=3.13"
+# requires-python = ">=3.13,<3.14"
 # dependencies = [
 #     "anywidget",
 #     "libsql==0.1.11",
-#     "plotly",
+#     "marimo>=0.25.2",
+#     "numpy==2.5.4",
+#     "plotly[express]==7.1.0",
 #     "polars",
 #     "xlsxwriter==3.2.9",
 # ]
@@ -43,7 +45,9 @@ def entete_et_imports():
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
         (VERSION, "Connexion à la base : bibliothèque libsql 0.1.11 à la place de libsql-experimental 0.0.55 "
-                  "(sans wheel Windows), même interface ; le notebook s'exécute aussi sous Windows"),
+                  "(sans wheel Windows), même interface ; numpy et plotly[express] déclarés dans les dépendances "
+                  "(plotly.express plantait dans le sandbox sans numpy) ; Python limité à 3.13 (pas de wheel "
+                  "libsql Windows pour 3.14) ; le notebook s'exécute aussi sous Windows"),
         ("0.59", "Impression (copie de OPEE_by_GM v0.99d) : panneaux de filtres, commandes et boutons "
                   "« Télécharger en CSV / JSON » non imprimés (filtres actifs conservés), statistiques et aperçu "
                   "du contrôle du socle non imprimés, leviers de l'Analyse5 et période de l'Analyse2 écrits en "
