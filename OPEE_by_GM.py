@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99i"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "18/10/2026 14:01"
+    VERSION = "0.99j"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "22/10/2026 23:07"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : page de garde (visuel, version, encarts OPEE, liens vers le HUB, liste des graphiques), puis une page par graphique (graphique + filtres actifs) ; masqués en plus : historique des versions, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1 ; page de garde tenue sur une page (visuel du HUB réduit à 540 px, marges des cellules masquées supprimées à l'impression)"),
+        (VERSION, "Charte HUB (template_hub.pptx) : palette unique PALETTE_HUB et police Aptos pour tous les graphiques ; filtre de surface unique (curseur sref 0 à 5 000 m², pas de 50, 150 à 5 000 par défaut) toujours visible, valable pour tous les usages (sref reconstituée en logement collectif, intervalles des maisons individuelles, valeur de l'enseignement ; sans effet pour les bureaux) — corrige l'erreur des usages autres que le logement collectif ; filtre « type d'attestation » supprimé (l'open data ne publie que des DAACT) ; effectif tracé affiché sur chaque graphique ; 70 -> 40 cellules (sauts de page dans les cellules de paramètres, encadré des filtres actifs dans les cellules graphiques, code mort supprimé) ; constantes et filtres communs placés avant le graphique 1 ; impression PDF : graphiques à largeur automatique figés avant réduction (n'étaient plus coupés à droite, graphiques 7 à 9) ; graphique 1 en largeur automatique (titre coupé)"),
+        ("0.99i", "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : page de garde (visuel, version, encarts OPEE, liens vers le HUB, liste des graphiques), puis une page par graphique (graphique + filtres actifs) ; masqués en plus : historique des versions, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1 ; page de garde tenue sur une page (visuel du HUB réduit à 540 px, marges des cellules masquées supprimées à l'impression)"),
         ("0.99h", "Graphique 10 (DH) : choix de l'unité « Zone du bâtiment » (comme avant) ou « Bâtiment » (dh_batiment, sans séparation traversant / non traversant) ; exports : tableau (en mode bâtiment, Q1 / médiane / Q3 par zone climatique) + export brut (une ligne par point tracé) ; filtres actifs sous le graphique"),
         ("0.99g", "Graphique 6 : filtre des seuils IC construction atteints (RE2022, RE2025, RE2028, RE2031) ; sous le graphique, en gros chiffres, part des FDES / PEP (individuelles, collectives, configurées…) face aux DED + forfaitaire pour le gros œuvre (lots 2-3, bleu), le second œuvre (lots 4-7, rouge) et les lots techniques (lots 8-13, vert), couleurs du graphique 3 ; encadré des filtres actifs placé sous le graphique"),
         ("0.99f", "Graphique 5 corrigé : empilement de tous les types de fiches du total (FDES, fiches configurées, PEP, PEP extrapolées, DED, autres ; nb_des exclu car hors total), valeurs écrites dans les segments, nouvelle palette (hachures pour les fiches configurées et les PEP extrapolées) ; colonne du milieu = total des fiches, point = médiane et barre = Q1 à Q3 (style du graphique 8)"),
@@ -63,10 +64,11 @@ def entete_et_imports():
         ("0.9", "7 graphiques, version de base publique"),
     ]
 
-    # Palette du HUB (relevée sur le visuel du webinaire)
-    JAUNE = "#FDB913"         # jaune du logo HUB
+    # Couleurs du thème de template_hub.pptx (charte du HUB) ; palette des graphiques :
+    # cellule `liste_graphiques` (PALETTE_HUB)
+    JAUNE = "#FABD4A"         # jaune HUB (accent 4 du thème)
     JAUNE_CLAIR = "#FBBF4D"   # bande diagonale à gauche
-    ORANGE = "#EE7D00"        # bandeau du titre
+    ORANGE = "#FA9600"        # orange HUB (accent 5 du thème) : bandeau du titre
     NOIR = "#000000"
 
     # Logos (hébergés par l'IFPEB)
@@ -156,7 +158,7 @@ def entete_et_imports():
         return f"""
         <div class="carte-hub" style="flex:1;min-width:260px;display:flex;gap:14px;align-items:flex-start;
                     padding:16px 18px;border-radius:12px;
-                    background:rgba(253,185,19,.14);border:1px solid rgba(253,185,19,.55);">
+                    background:rgba(250,189,74,.14);border:1px solid rgba(250,189,74,.55);">
           <div style="flex:none;width:30px;height:30px;border-radius:50%;
                       background:{ORANGE};color:#fff;font-weight:700;
                       display:flex;align-items:center;justify-content:center;">{numero}</div>
@@ -211,8 +213,9 @@ def style_impression(mo):
     # Le bouton appelle window.print() DEPUIS le cadre : tout le notebook sort.
     #
     # Ce que fait le bouton, juste avant d'ouvrir la boîte d'impression :
-    #   1. réduit chaque graphique (zoom CSS) pour qu'il tienne dans la page
-    #      (les graphiques 3 et 11 font 1180 et 1100 px de large, plus qu'une A4) ;
+    #   1. fait tenir chaque graphique dans la page par un zoom CSS ; la largeur des
+    #      graphiques à largeur automatique est d'abord figée (Plotly.relayout), sinon
+    #      ils se redimensionneraient sous le zoom et seraient coupés à droite ;
     #   2. masque la barre d'outils Plotly ;
     #   3. après l'impression (événement « afterprint »), rétablit l'affichage.
     # Les graphiques sont dans un « shadow DOM » (élément <marimo-plotly>) : la CSS
@@ -325,8 +328,9 @@ def style_impression(mo):
       return liste;
     }
 
-    function preparer() {
+    async function preparer() {
       const modifs = [];
+      const relayouts = [];
       for (const g of graphiques(document)) {
         const racine = g.getRootNode();              // shadow root du graphique
         const hote = racine.host;                    // <marimo-plotly>
@@ -335,15 +339,24 @@ def style_impression(mo):
         const style = document.createElement("style");
         style.textContent = ".modebar-container { display: none !important; }";
         (racine.host ? racine : document.head).appendChild(style);
-        // 2. réduire le graphique pour qu'il tienne dans la page
-        //    (taille réelle de la figure : _fullLayout ; le conteneur peut être plus étroit)
+        // 2. faire tenir le graphique dans la page
         const r = g.getBoundingClientRect();
         const largeur = (g._fullLayout && g._fullLayout.width) || r.width;
         const hauteur = (g._fullLayout && g._fullLayout.height) || r.height;
+        const largeurImposee = g.layout && g.layout.width;      // fixée dans le code Python ?
+        const modif = { bloc, zoom: bloc.style.zoom, style, g, largeurAvant: null };
+        if (!largeurImposee && window.Plotly) {
+          // Largeur automatique : on FIGE la largeur affichée à l'écran, sinon le zoom CSS
+          // ferait se redimensionner le graphique tout seul (et déborder à droite)
+          modif.largeurAvant = largeur;
+          relayouts.push(window.Plotly.relayout(g, { width: largeur }));
+        }
+        // Réduction homothétique (zoom CSS) : même rendu qu'à l'écran, à l'échelle de la page
         const zoom = Math.min(1, LARGEUR_MAX / largeur, HAUTEUR_MAX / hauteur);
-        modifs.push({ bloc, zoom: bloc.style.zoom, style });
+        modifs.push(modif);
         bloc.style.zoom = zoom;
       }
+      await Promise.all(relayouts);
       return modifs;
     }
 
@@ -356,11 +369,14 @@ def style_impression(mo):
         @media print { button { display: none; } }`;
       const bouton = document.createElement("button");
       bouton.textContent = "__LIBELLE__";
-      bouton.onclick = () => {
-        const modifs = preparer();
+      bouton.onclick = async () => {
+        const modifs = await preparer();
         // 3. après l'impression : rétablir l'affichage écran
         const retablir = () => {
-          modifs.forEach(m => { m.bloc.style.zoom = m.zoom; m.style.remove(); });
+          modifs.forEach(m => {
+            m.bloc.style.zoom = m.zoom; m.style.remove();
+            if (m.largeurAvant) window.Plotly.relayout(m.g, { width: null, autosize: true });   // largeur automatique
+          });
           window.removeEventListener("afterprint", retablir);
         };
         window.addEventListener("afterprint", retablir);
@@ -417,12 +433,80 @@ def liste_graphiques(mo):
     # ajoute le bouton « Download plot as JSON » (modeBarButtonsToAdd).
     CONFIG_PLOTLY = {"modeBarButtonsToAdd": ["downloadJson"]}
 
+
+    # ============================================================================
+    # CHARTE GRAPHIQUE DU HUB (template_hub.pptx) — SOURCE UNIQUE DES COULEURS
+    #
+    # Palette des graphiques du modèle (themeOverride de ses graphiques « impact
+    # carbone », « IC composant par lot », « matériaux par seuil ») + jaune et orange
+    # du thème des diapositives. Tous les graphiques lisent leurs couleurs ICI.
+    # ============================================================================
+
+    POLICE_GRAPHIQUES = "Aptos, Arial, sans-serif"     # police du modèle (Arial en secours)
+
+    _BASE = {
+        "bleu_nuit": "#283246", "bleu_ardoise": "#55739B", "corail": "#FF554B",
+        "saumon": "#FFAA96", "vert_sauge": "#5F8C82", "vert_eau": "#A0C8B9",
+        "gris": "#AAAAB2", "gris_fonce": "#46464E",
+        "jaune_hub": "#FABD4A", "orange_hub": "#FA9600", "jaune_vif": "#FFC000",
+    }
+    PALETTE_HUB = {
+        "base": _BASE,
+        # Six couleurs de base du modèle, dans l'ordre de ses accents (séries multiples)
+        "suite": [_BASE[_c] for _c in ("bleu_nuit", "bleu_ardoise", "corail", "saumon", "vert_sauge", "vert_eau")],
+        # Postes de l'impact carbone (graphique 2) — couleurs du graphique du modèle
+        "postes": {"Composants": "#283246", "Chantier": "#9CAEC5", "Énergie": "#FFDD7B", "Eau": "#00B0F0"},
+        # Lots RE2020 (graphique 3) — couleurs du graphique « par lot » du modèle
+        "lots": {
+            1: "#AAAAB2", 2: "#55739B", 3: "#CCD3E3",
+            4: "#A51C00", 5: "#FF5830", 6: "#FF9994", 7: "#FFCCC0",
+            8: "#304641", 9: "#476961", 10: "#9DBCB5", 11: "#BED3CF", 12: "#CCD5D2", 13: "#D9E9E3",
+        },
+        # Macro-lots (étiquettes du modèle) : graphiques 3 et 6
+        "macro_lots": {"VRD": "#AAAAB2", "Gros œuvre": "#50608C", "Second œuvre": "#A50900", "Lots techniques": "#304641"},
+        # Catégories de matériaux de structure (graphiques 4, 8, 9, 11)
+        "materiaux": {
+            "Béton": "#283246", "Terre cuite": "#FFAA96", "Acier": "#46464E",
+            "Bas Carbone": "#5F8C82", "Sans info": "#AAAAB2",
+        },
+        # Seuils IC construction atteints, du moins au plus exigeant
+        "seuils": {"RE2022": "#FFAA96", "RE2025": "#FABD4A", "RE2028": "#A0C8B9", "RE2031": "#5F8C82", "Inconnu": "#AAAAB2"},
+        # Natures de fiches (graphiques 5 et 6) : famille FDES = vert, PEP = bleu
+        "fiches": {
+            "FDES": "#5F8C82", "FDES claire": "#A0C8B9", "FDES pâle": "#D9E9E3",
+            "PEP": "#55739B", "PEP claire": "#9CAEC5", "PEP pâle": "#CCD3E3",
+            "DED": "#FA9600", "Forfaitaire": "#FFAA96", "Autres": "#AAAAB2",
+        },
+        # Dégradé des tranches d'IC (graphique 1) : du plus bas au plus haut
+        "degrade_ic": ("#CCD3E3", "#283246"),
+        # Repères (lignes réglementaires, médianes)
+        "repere_alerte": "#FF554B",        # DH max, seuils dépassés
+        "repere_neutre": "#46464E",        # seuils bas, médianes globales
+        "repere_biosource": "#304641",     # lignes du label bâtiment biosourcé
+        "non_renseigne": "#AAAAB2",
+        "non_renseigne_clair": "#D9D9D9",
+    }
+
+    # Police par défaut de TOUS les graphiques : modèle Plotly « plotly_white » rendu
+    # global (les graphiques qui ne précisent pas de modèle l'utilisent aussi).
+    import plotly.io as _pio
+    _pio.templates["plotly_white"].layout.font.family = POLICE_GRAPHIQUES
+    _pio.templates["plotly_white"].layout.colorway = PALETTE_HUB["suite"]
+    _pio.templates.default = "plotly_white"
+
+
+    def ligne_effectif(n, unite="bâtiments", detail=""):
+        """Ligne de sous-titre commune : nombre d'éléments réellement tracés."""
+        _n = f"{n:,}".replace(",", "\u202f")
+        return f"<sup><b>Effectif tracé : {_n} {unite}</b>{(' — ' + detail) if detail else ''}</sup>"
+
+
     # Imprimée : sommaire de la page de garde
     mo.md(
         "### Graphiques du dashboard\n\n"
         + "\n".join(f"- Graphique {_n} — {_titre}" for _n, _titre in GRAPHIQUES.items())
     )
-    return CONFIG_PLOTLY, GRAPHIQUES
+    return CONFIG_PLOTLY, GRAPHIQUES, PALETTE_HUB, POLICE_GRAPHIQUES, ligne_effectif
 
 
 @app.cell(hide_code=True)
@@ -469,195 +553,8 @@ def creation_connect(champ_jeton, mo):
     )
     noms_tables = [t[0] for t in _tables]
 
-    # --- 2. Comptage de toutes les tables en UN SEUL appel (2e et dernier) -----
-    # Plutôt qu'un COUNT(*) par table (un appel réseau par table), on combine
-    # tous les comptages en une seule requête via UNION ALL, exécutée en un
-    # unique aller-retour vers la base.
-    """
-    _requete = " UNION ALL ".join(
-        f"SELECT '{_nom}' AS table_name, COUNT(*) AS nb_lignes FROM \"{_nom}\""
-        for _nom in noms_tables
-    )
-    _comptages = turso_conn.execute(_requete).fetchall()
-
-    _df_comptages = pl.DataFrame(
-        _comptages, schema=["table", "nb_lignes"], orient="row"
-    ).sort("nb_lignes", descending=True)
-
-    _table = mo.ui.table(_df_comptages, show_download=False)
-    _table
-    """
     mo.Html('<div class="pas-imprime">' + _result.text + '</div>')   # (non imprimé)
     return noms_tables, turso_conn
-
-
-@app.cell(disabled=True, hide_code=True)
-def _(mo, pl, turso_conn):
-
-
-    # Sélectionne un projet_id qui a plusieurs bâtiments (celui qui en a le
-    # plus, pour être sûr d'avoir un exemple), puis affiche jusqu'à 10 de ses
-    # bâtiments -- un seul appel à Turso (sous-requête imbriquée).
-    _requete = """
-        SELECT projet_id, batiment_index, usage_principal_txt
-        FROM batiment_open_data
-        WHERE projet_id = (
-            SELECT projet_id
-            FROM batiment_open_data
-            GROUP BY projet_id
-            HAVING COUNT(*) > 1
-            ORDER BY COUNT(*) DESC
-            LIMIT 1
-        )
-        LIMIT 10
-    """
-    _cursor = turso_conn.execute(_requete)
-    _col_names = [desc[0] for desc in _cursor.description]
-    _lignes = _cursor.fetchall()
-
-    _df = pl.DataFrame(_lignes, schema=_col_names, orient="row")
-
-    _table = mo.ui.table(_df, show_download=False)
-    _table
-    return
-
-
-@app.cell(disabled=True, hide_code=True)
-def _(mo, noms_tables):
-    dropdown_table = mo.ui.dropdown(
-        options=noms_tables,
-        value='batiment_open_data',
-        label="Table à afficher"
-    )
-    limit_extract = mo.ui.slider(start=10, stop=150, step=10, show_value=True,label="Combien de ligne afficher ?")
-    button_run_table = mo.ui.run_button(label="---> lancer le calcul <----")
-    juste_quelques_colonnes = mo.ui.checkbox()
-
-    mo.vstack([
-        mo.md("### TABLEAU AVEC UN EXTRAIT D'UNE TABLE"),
-        dropdown_table,
-        limit_extract,
-        mo.md(f"Seulement les colonnes les plus importantes des bâtiments ? {juste_quelques_colonnes} (oui = coché)"),
-        #juste_quelques_colonnes,
-        mo.md(f"\n\n\n{button_run_table}"),
-        mo.md("*🔽 cliquer pour lancer si rien ne s'affiche 🔽*")
-    ])
-    return (
-        button_run_table,
-        dropdown_table,
-        juste_quelques_colonnes,
-        limit_extract,
-    )
-
-
-@app.cell(disabled=True, hide_code=True)
-def affiche_table(
-    button_run_table,
-    dropdown_table,
-    juste_quelques_colonnes,
-    limit_extract,
-    mo,
-    pl,
-    turso_conn,
-):
-    mo.stop(not button_run_table.value)
-    # ============================================================================
-    # Affiche l'intégralité de la table batiment_open_data sous forme de
-    # DataFrame (un seul appel à la base Turso).
-    # ============================================================================
-    _TABLE_NAME = dropdown_table.value
-    # Récupérer les noms de colonnes
-    _cursor = turso_conn.execute(f"PRAGMA table_info({_TABLE_NAME})")
-    _columns = [row[1] for row in _cursor.fetchall()]
-
-    if (_TABLE_NAME == "batiment_open_data" and juste_quelques_colonnes.value == True):
-        # Colonnes nommées explicitement, dans l'ordre voulu à l'affichage
-        _colonnes_prioritaires = [
-            "projet_id",
-            "usage_principal_txt",
-            "shab",
-            "sref",
-            "seuil_ic_construction_atteint",
-            "ic_energie",
-            "ic_construction",
-        ]
-        # Puis les colonnes qui matchent un motif, dans l'ordre où elles
-        # apparaissent dans la table (pas d'ordre particulier à préciser)
-        _colonnes_batiment = [col for col in _columns if "batiment" in col.lower()]
-        _colonnes_ic_composant = [col for col in _columns if col.startswith("ic_composant")]
-
-        # Assemblage dans l'ordre : prioritaires -> batiment -> ic_composant,
-        # en ne gardant que les colonnes qui existent réellement dans la table
-        # et sans doublon (garde la première occurrence rencontrée).
-        _selected_columns = []
-        for col in _colonnes_prioritaires + _colonnes_batiment + _colonnes_ic_composant:
-            if col in _columns and col not in _selected_columns:
-                _selected_columns.append(col)
-
-        # Construire et exécuter la requête
-        _query = f"""
-            SELECT {", ".join(f'"{col}"' for col in _selected_columns)}
-            FROM {_TABLE_NAME}
-            LIMIT {limit_extract.value}
-        """
-    else:
-        _query = f"""
-            SELECT *
-            FROM {_TABLE_NAME}
-            LIMIT {limit_extract.value}
-        """
-    _cursor = turso_conn.execute(_query)
-
-    _col_names = [desc[0] for desc in _cursor.description]
-    _lignes = _cursor.fetchall()
-
-
-    """
-    _TABLE_NAME = "batiment_open_data"
-
-    _cursor = turso_conn.execute(f"SELECT * FROM {_TABLE_NAME} LIMIT 100")
-    _col_names = [desc[0] for desc in _cursor.description]
-    _lignes = _cursor.fetchall()
-    """
-    # Construction à partir de dicts (colonne par colonne) pour éviter les
-    # erreurs de dépassement de capacité lors de l'inférence de type de polars
-    # (orient="row" peut inférer Int32 sur les premières lignes puis planter
-    # sur une valeur plus grande).
-    # infer_schema_length=None force polars à scanner TOUTES les lignes avant
-    # de décider du type de chaque colonne, évitant qu'il infère Int32 sur un
-    # sous-ensemble puis plante sur une valeur plus grande.
-    _data_dicts = [dict(zip(_col_names, row)) for row in _lignes]
-    _df = pl.DataFrame(_data_dicts, infer_schema_length=None)
-
-    DATA_tab1 = _df
-
-    print(f"{_df.height} lignes, {_df.width} colonnes")
-
-    # Affichage interactif (tri, filtre, pagination) dans marimo
-    table = mo.ui.table(_df, show_download=False)
-    table
-    return (DATA_tab1,)
-
-
-@app.cell(disabled=True, hide_code=True)
-def _(DATA_tab1, mo):
-    _df_long = DATA_tab1
-    _csv_download = mo.download(
-        data=_df_long.write_csv().encode("utf-8-sig"),
-        filename="data.csv",
-        mimetype="text/csv",
-        label="Download CSV",
-    )
-    # JSON download data=json.dumps(_df_long).encode("utf-8"),
-    _json_download = mo.download(
-        data=_df_long.write_json().encode("utf-8"),
-        filename="data.json",
-        mimetype="application/json",
-        label="Download JSON",
-    )
-
-    mo.vstack([_csv_download, _json_download])
-    return
 
 
 @app.cell(hide_code=True)
@@ -981,19 +878,37 @@ def extraction_unique(
         pl.col("dc_type_structure_principale").cast(pl.Utf8).str.strip_chars(),
     )
 
-    # Colonne `sref` : renseignée uniquement pour les LOGEMENTS COLLECTIFS (fonction
-    # `retrouver_sref`) ; NULL pour les autres usages. Remplace la colonne vide créée
-    # par la requête, à la même place.
+    # Surface de référence, selon ce que la base publie pour chaque usage (la colonne
+    # `sref` de la base, devenue `sref_approx`, est un TEXTE partiellement occulté) :
+    #   - logement collectif : occultée -> reconstituée par `retrouver_sref` (m²) ;
+    #   - maison individuelle : intervalle en texte (« Entre 75 et 99 m² ») -> bornes ;
+    #   - enseignement : valeur complète, en texte -> nombre ;
+    #   - bureau : occultée -> inconnue.
+    # Colonnes produites : `sref` (m², si connue exactement) et `sref_min` / `sref_max`
+    # (bornes, égales à `sref` quand elle est connue) : le filtre de surface garde un
+    # bâtiment si son intervalle [sref_min ; sref_max] recoupe la plage choisie.
+    _sref_texte = pl.col("sref_approx").cast(pl.Utf8).str.strip_chars()
+    _sref_nombre = _sref_texte.str.replace(",", ".").cast(pl.Float64, strict=False)
+    _nombres = _sref_texte.str.extract_all(r"\d+(?:[.,]\d+)?").list.eval(
+        pl.element().str.replace(",", ".").cast(pl.Float64))
     _df = _df.with_columns(
-        pl.when(pl.col("usage") == USAGE_LOGEMENT_COLLECTIF)
-        .then(retrouver_sref())
-        .otherwise(pl.lit(None, dtype=pl.Float64))
-        .cast(pl.Float64)
-        .alias("sref")
+        pl.when(pl.col("usage") == USAGE_LOGEMENT_COLLECTIF).then(retrouver_sref())
+        .otherwise(_sref_nombre)
+        .cast(pl.Float64).alias("sref"),
+    ).with_columns(
+        # Bornes : valeur exacte, sinon intervalle lu dans le texte (« < 75 », « Entre a et b », « >= 150 »)
+        pl.when(pl.col("sref").is_not_null()).then(pl.col("sref"))
+        .when(_sref_texte.str.contains("<")).then(pl.lit(0.0))
+        .otherwise(_nombres.list.first())
+        .alias("sref_min"),
+        pl.when(pl.col("sref").is_not_null()).then(pl.col("sref"))
+        .when(_sref_texte.str.contains(">")).then(pl.lit(float("inf")))
+        .when(_sref_texte.str.contains("<")).then(_nombres.list.first() - 0.01)        # « < 75 » -> [0 ; 74,99]
+        .when(_nombres.list.len() >= 2).then(_nombres.list.get(1, null_on_oob=True))   # « Entre 75 et 99 » -> [75 ; 99]
+        .otherwise(None)
+        .alias("sref_max"),
     )
-    if _USAGE_FILTRE == USAGE_LOGEMENT_COLLECTIF:
-        print(f"  sref retrouvé : {_df.height - _df['sref'].null_count()} / {_df.height} bâtiments "
-              f"(NULL = misurf_tot / mbsurf_tot absents ou incohérents)")
+    print(f"  surface connue (exacte ou intervalle) : {_df.height - _df['sref_min'].null_count()} / {_df.height} bâtiments")
 
     # Listes JSON -> vraies listes polars (filtrage propre ensuite)
     _df = _df.with_columns(
@@ -1042,8 +957,7 @@ def extraction_unique(
 @app.cell(hide_code=True)
 def widgets_filtres(
     MATERIAUX_OPTIONS,
-    MODE_SURFACE_SREF,
-    MODE_SURFACE_SREF_APPROX,
+    SREF_DEFAUT,
     SREF_MAX_SLIDER,
     SREF_PAS_SLIDER,
     mo,
@@ -1052,44 +966,32 @@ def widgets_filtres(
     # CELLULE — Définition des widgets de filtres COMMUNS à tous les graphiques
     #
     # Définis ici UNE fois (aucun affichage) ; chaque cellule de paramètres les
-    # affiche là où elle en a besoin. (Le widget "surface", qui dépend de l'usage,
-    # est dans sa propre cellule : changer d'usage ne réinitialise que lui.)
+    # affiche là où elle en a besoin (le même widget, synchronisé partout).
     # ============================================================================
 
-    choix_de_la_date = mo.ui.multiselect(
-        options=["2022", "2023", "2024", "2025"], label="choisissez les dates", value=["2022", "2023", "2024", "2025"]
-    )
-    choix_de_attestation = mo.ui.multiselect(
-        options=["DAACT", "PC"], label="choisissez l'attestation", value=["DAACT", "PC"]
-    )
-    choix_valide_regles = mo.ui.switch(label="Valider pour regarder seulement les bons batiments ?", value=True)
-
     # Par défaut TOUT est coché (= pas de filtre) : voir `valeurs_actives`.
-    _zones = ["H1a", "H1b", "H1c", "H2a", "H2b", "H2c", "H2d", "H3"]
-    choix_zone_climatique = mo.ui.multiselect(options=_zones, value=_zones, label="Zone Climatique")
+    _ANNEES = ["2022", "2023", "2024", "2025"]
+    _ZONES = ["H1a", "H1b", "H1c", "H2a", "H2b", "H2c", "H2d", "H3"]
+
+    choix_de_la_date = mo.ui.multiselect(options=_ANNEES, value=_ANNEES, label="Années de dépôt du PC")
+    choix_valide_regles = mo.ui.switch(label="Valider pour regarder seulement les bons batiments ?", value=True)
+    choix_zone_climatique = mo.ui.multiselect(options=_ZONES, value=_ZONES, label="Zone Climatique")
     choix_materiau_structure = mo.ui.multiselect(
         options=MATERIAUX_OPTIONS, value=MATERIAUX_OPTIONS, label="Quels Matériaux"
     )
     cacher_inconnu = mo.ui.switch(label="Masquer les inconnus ?", value=True)
 
-    # Surface : DEUX filtres possibles, un seul appliqué à la fois (le choix ci-dessous).
-    # Par défaut : sref_approx (tranches), comme avant.
-    choix_mode_surface = mo.ui.radio(
-        options=[MODE_SURFACE_SREF_APPROX, MODE_SURFACE_SREF],
-        value=MODE_SURFACE_SREF_APPROX,
-        label="Filtre de surface APPLIQUÉ",
-    )
+    # Surface de référence : UN seul filtre, plage en m² (cf. `sref_min` / `sref_max`,
+    # cellule d'extraction). La borne haute au maximum du curseur = « et plus ».
     choix_sref = mo.ui.range_slider(
-        start=0, stop=SREF_MAX_SLIDER, step=SREF_PAS_SLIDER, value=[0, SREF_MAX_SLIDER],
-        show_value=True, label="sref (m²) entre :",
+        start=0, stop=SREF_MAX_SLIDER, step=SREF_PAS_SLIDER, value=SREF_DEFAUT,
+        show_value=True, full_width=True, label="Surface de référence (sref, m²) entre :",
     )
 
     return (
         cacher_inconnu,
-        choix_de_attestation,
         choix_de_la_date,
         choix_materiau_structure,
-        choix_mode_surface,
         choix_sref,
         choix_valide_regles,
         choix_zone_climatique,
@@ -1097,51 +999,11 @@ def widgets_filtres(
 
 
 @app.cell(hide_code=True)
-def widget_surface(dropdown_usage, mo, options_surface):
-    # Options du filtre surface : dépendent de l'usage choisi (tranches de sref, ou
-    # tranches de taille de logement collectif) -- cf. cellule `constantes_filtres`.
-    _options_surface = options_surface(dropdown_usage.value)
-    choix_de_surface = mo.ui.multiselect(
-        options=_options_surface, value=_options_surface, label="Surface"
-    )
-    return (choix_de_surface,)
-
-
-@app.cell(hide_code=True)
-def bloc_surface(choix_de_surface, choix_mode_surface, choix_sref, mo):
-    # ============================================================================
-    # CELLULE D'AFFICHAGE — bloc "surface" réutilisé dans toutes les cellules de
-    # paramètres : le choix du filtre appliqué + les DEUX filtres (tranches de
-    # sref_approx, plage de sref). Mise en page statique (ne lit aucune valeur) :
-    # changer de filtre ne réinitialise donc pas les autres paramètres.
-    # ============================================================================
-
-    bloc_filtre_surface = mo.vstack([
-        choix_mode_surface,
-        mo.hstack([choix_de_surface, choix_sref], justify="start", align="end", wrap=True),
-    ])
-    return (bloc_filtre_surface,)
-
-
-@app.cell(hide_code=True)
-def rappel_filtre_surface(MODE_SURFACE_SREF, choix_mode_surface, choix_sref, mo):
-    # Rappel (affiché une fois) du filtre de surface réellement appliqué.
-    if choix_mode_surface.value == MODE_SURFACE_SREF:
-        _texte = f"**Filtre de surface appliqué : `sref`** — entre {choix_sref.value[0]} et {choix_sref.value[1]} m². Les tranches `sref_approx` sont ignorées."
-    else:
-        _texte = "**Filtre de surface appliqué : `sref_approx`** (tranches). Le curseur `sref` est ignoré."
-    # (non imprimé : le filtre de surface figure dans l'encadré des filtres actifs)
-    mo.Html('<div class="pas-imprime">' + mo.callout(mo.md(_texte), kind="info").text + '</div>')
-    return
-
-
-@app.cell(hide_code=True)
 def panneau_filtres_def(
-    bloc_filtre_surface,
     cacher_inconnu,
-    choix_de_attestation,
     choix_de_la_date,
     choix_materiau_structure,
+    choix_sref,
     choix_valide_regles,
     choix_zone_climatique,
     mo,
@@ -1152,9 +1014,10 @@ def panneau_filtres_def(
     # Disposition :
     #   1. Qualité des données (toujours visible, en haut) : règles de validation,
     #      masquer les inconnus
-    #   2. Trois accordéons FERMÉS côte à côte :
-    #        - Période et lieu : années de dépôt, type d'attestation, zone climatique
-    #        - Bâtiment        : filtre de surface, matériau de structure
+    #   2. Surface de référence (toujours visible) : curseur 0 à 5 000 m²
+    #   3. Accordéons FERMÉS côte à côte :
+    #        - Période et lieu : années de dépôt, zone climatique
+    #        - Matériau        : matériau de structure (si le graphique le filtre)
     #        - Graphique N     : paramètres propres au graphique (optionnel)
     #
     # Cette cellule ne lit AUCUNE valeur de widget : sa mise en page est statique,
@@ -1169,7 +1032,7 @@ def panneau_filtres_def(
     # ============================================================================
 
     _LIBELLE_PERIODE = "Période et lieu"
-    _LIBELLE_BATIMENT = "Bâtiment"
+    _LIBELLE_MATERIAU = "Matériau"
 
 
     def panneau_filtres(parametres_graphique=None, *, avec_materiau=True, avec_inconnus=True, bascules_graphique=(), bascule_en_evidence=None):
@@ -1191,24 +1054,18 @@ def panneau_filtres_def(
         )
 
         # 2. Contenu des accordéons
-        _bloc_periode = mo.vstack([
-            mo.hstack([choix_de_la_date, choix_de_attestation], justify="start", wrap=True),
-            choix_zone_climatique,
-        ])
-        _bloc_batiment = mo.vstack(
-            [bloc_filtre_surface] + ([choix_materiau_structure] if avec_materiau else [])
-        )
+        _bloc_periode = mo.vstack([choix_de_la_date, choix_zone_climatique])
 
         # Accordéons fermés par défaut, côte à côte
-        _accordeons = [
-            mo.accordion({_LIBELLE_PERIODE: _bloc_periode}),
-            mo.accordion({_LIBELLE_BATIMENT: _bloc_batiment}),
-        ]
+        _accordeons = [mo.accordion({_LIBELLE_PERIODE: _bloc_periode})]
+        if avec_materiau:
+            _accordeons.append(mo.accordion({_LIBELLE_MATERIAU: choix_materiau_structure}))
         if parametres_graphique:
             _accordeons.append(mo.accordion(parametres_graphique))
 
         _panneau = mo.vstack([
             _qualite,
+            choix_sref,                                    # surface : toujours visible
             *([mo.callout(bascule_en_evidence, kind="info")] if bascule_en_evidence is not None else []),
             mo.hstack(_accordeons, justify="start", align="start", wrap=True, widths="equal"),
         ])
@@ -1220,12 +1077,274 @@ def panneau_filtres_def(
 
 
 @app.cell(hide_code=True)
-def saut_page_1(mo):
-    # Saut de page à l'impression avant le graphique 1 : la 1re page imprimée est la
-    # page de garde (visuel, version, encarts, liens vers le HUB, liste des
-    # graphiques). Aucun effet à l'écran.
-    mo.Html('<div class="saut-page"></div>')
-    return
+def constantes_filtres(PALETTE_HUB, pl):
+    # ============================================================================
+    # CELLULE — Constantes des filtres (surface, matériau), définies en UN seul endroit
+    #
+    # Surface : un seul filtre, plage de sref en m² (curseur SREF_MIN..SREF_MAX_SLIDER).
+    # Logement collectif : tranches de taille « Petit / moyen / Grand logement coll. »
+    # calculées sur surface_baies_rset (utilisées par les graphiques 6 et 9).
+    #
+    # Matériau : "None" est le libellé affiché pour les matériaux NON RENSEIGNÉS
+    # (valeur NULL dans la base) -- cf. `appliquer_filtres`.
+    #
+    # Fournit :
+    #   - SREF_MAX_SLIDER / SREF_PAS_SLIDER / SREF_DEFAUT : curseur de surface
+    #   - USAGES_SANS_SURFACE : usages dont la base n'a aucune surface (filtre sans effet)
+    #   - LIBELLE_MATERIAU_NUL / MATERIAUX_OPTIONS : options du filtre matériau
+    #   - CATEGORIES_MATERIAU / MAPPING_MATERIAU / COULEURS_CATEGORIES : regroupement
+    #                               des matériaux en 5 catégories (graphiques 4, 8, 9)
+    #   - expr_tranche_surface()  : tranche de taille des logements collectifs
+    #                               (colonne `tranche_sref`)
+    # ============================================================================
+
+    # --- Paramètres ---------------------------------------------------------------
+    USAGE_LOGEMENT_COLLECTIF = "Logement collectif"
+    TRANCHES_LOGEMENT_COLLECTIF = ["Petit logement coll.", "Logement coll. moyen", "Grand logement coll."]
+    # Filtre de surface (plage de sref en m², commun à tous les graphiques)
+    SREF_MAX_SLIDER = 5000          # = SREF_PLATEAU (fonction retrouver_sref) ; borne haute au max = « et plus »
+    SREF_PAS_SLIDER = 50
+    SREF_DEFAUT = [150, SREF_MAX_SLIDER]
+    USAGES_SANS_SURFACE = ["Bureau"]   # sref occultée dans l'open data, non reconstituée
+    LIBELLE_MATERIAU_NUL = "None"      # libellé de l'option "matériau non renseigné" (NULL)
+    MATERIAUX_OPTIONS = [
+        LIBELLE_MATERIAU_NUL,
+        "Acier", "Autre", "Béton", "Béton cellulaire", "Béton de bois", "Béton de chanvre",
+        "Béton fibré", "Béton haute performance", "Mixte: bois-béton", "Mixte: béton-acier",
+        "Pierre", "Terre crue", "Terre cuite", "Bois massif", "Bois massif reconstitué",
+    ]
+    # Regroupement des 15 matériaux de structure en 5 catégories (graphiques 4 et 8)
+    CATEGORIES_MATERIAU = ["Sans info", "Béton", "Terre cuite", "Acier", "Bas Carbone"]
+    MAPPING_MATERIAU = {
+        "Autre": "Sans info",
+        "Béton": "Béton", "Béton cellulaire": "Béton", "Béton de bois": "Béton",
+        "Béton fibré": "Béton", "Béton haute performance": "Béton",
+        "Béton de chanvre": "Béton", "Mixte: béton-acier": "Béton",
+        "Terre cuite": "Terre cuite",
+        "Acier": "Acier",
+        "Mixte: bois-béton": "Bas Carbone", "Pierre": "Bas Carbone", "Terre crue": "Bas Carbone",
+        "Bois massif": "Bas Carbone", "Bois massif reconstitué": "Bas Carbone",
+    }
+    COULEURS_CATEGORIES = PALETTE_HUB["materiaux"]     # charte du HUB (cellule liste_graphiques)
+
+    _SEUIL_PETIT = 50      # surface_baies_rset <  50 -> petit
+    _SEUIL_GRAND = 200     # surface_baies_rset > 200 -> grand (50 à 200 inclus -> moyen)
+
+
+    def expr_tranche_surface():
+        """Tranche de taille des LOGEMENTS COLLECTIFS (surface_baies_rset) ; autres usages :
+        « Sans objet ». (La sref de la base est un texte pour les autres usages : elle
+        n'est jamais comparée à des nombres ici.)"""
+        _baies = pl.col("surface_baies_rset").cast(pl.Float64, strict=False)
+        _tranche_logement_collectif = (
+            pl.when(_baies < _SEUIL_PETIT).then(pl.lit(TRANCHES_LOGEMENT_COLLECTIF[0]))
+            .when(_baies.is_between(_SEUIL_PETIT, _SEUIL_GRAND)).then(pl.lit(TRANCHES_LOGEMENT_COLLECTIF[1]))
+            .when(_baies > _SEUIL_GRAND).then(pl.lit(TRANCHES_LOGEMENT_COLLECTIF[2]))
+            .otherwise(pl.lit("Inconnu"))
+        )
+        return (
+            pl.when(pl.col("usage") == USAGE_LOGEMENT_COLLECTIF)
+            .then(_tranche_logement_collectif)
+            .otherwise(pl.lit("Sans objet"))
+        )
+
+    return (
+        CATEGORIES_MATERIAU,
+        COULEURS_CATEGORIES,
+        LIBELLE_MATERIAU_NUL,
+        MAPPING_MATERIAU,
+        MATERIAUX_OPTIONS,
+        SREF_DEFAUT,
+        SREF_MAX_SLIDER,
+        SREF_PAS_SLIDER,
+        TRANCHES_LOGEMENT_COLLECTIF,
+        USAGES_SANS_SURFACE,
+        USAGE_LOGEMENT_COLLECTIF,
+        expr_tranche_surface,
+    )
+
+
+@app.cell(hide_code=True)
+def filtres_communs(
+    LIBELLE_MATERIAU_NUL,
+    SREF_MAX_SLIDER,
+    USAGES_SANS_SURFACE,
+    cacher_inconnu,
+    choix_de_la_date,
+    choix_materiau_structure,
+    choix_sref,
+    choix_valide_regles,
+    choix_zone_climatique,
+    dropdown_usage,
+    expr_tranche_surface,
+    mo,
+    pl,
+):
+    # ============================================================================
+    # CELLULE — Filtres temps réel COMMUNS à tous les graphiques
+    #
+    # Une seule définition de la logique de filtrage (au lieu d'une copie par
+    # graphique). Fournit :
+    #   - FILTRES            : dict des sélections actives
+    #   - SOUS_TITRE_FILTRES : texte résumant les filtres (sous-titre de TOUS les graphiques)
+    #   - SOUS_TITRE_SANS_MATERIAU : idem sans le matériau (graphique où il est l'axe)
+    #   - appliquer_filtres  : fonction (DataFrame -> DataFrame filtré)
+    #   - valeurs_actives    : "tout sélectionné = pas de filtre" (réutilisable)
+    #   - resume_filtres     : encadré des filtres actifs (affiché sous chaque graphique)
+    #
+    # Toute modification d'un widget relance cette cellule, donc tous les
+    # graphiques qui en dépendent.
+    # ============================================================================
+
+    # ============================================================================
+    # PARAMÈTRES (toutes les variables au même endroit)
+    # ============================================================================
+    _VALID_REGLES = choix_valide_regles.value
+    _CACHER_INCONNU = cacher_inconnu.value
+    _SREF_MIN, _SREF_MAX = [int(_v) for _v in choix_sref.value]      # plage de surface (m²)
+    _USAGE = dropdown_usage.value
+
+
+    def valeurs_actives(widget):
+        """Sélection d'un widget sous forme de liste, remplacée par [] si
+        TOUTES les options sont sélectionnées (= pas de filtre réel).
+        Les options sont lues dynamiquement sur le widget : aucune liste codée
+        en dur à maintenir."""
+        valeur = widget.value
+        valeur = [valeur] if isinstance(valeur, str) else list(valeur) if valeur is not None else []
+        options = widget.options
+        toutes = list(options.keys()) if isinstance(options, dict) else list(options)
+        return [] if set(valeur) == set(toutes) else valeur
+
+
+    # Sélections actives. annees_depot_pc est stocké en Int64 : le multiselect
+    # renvoie des chaînes -> conversion en entiers.
+    FILTRES = {
+        "regles_validation": _VALID_REGLES,
+        "annees": [int(a) for a in valeurs_actives(choix_de_la_date)],
+        "sref_plage": [_SREF_MIN, _SREF_MAX],                     # [min, max] en m²
+        "zones": valeurs_actives(choix_zone_climatique),
+        "materiaux": valeurs_actives(choix_materiau_structure),
+        "cacher_inconnu": _CACHER_INCONNU,
+    }
+
+
+    # --- Filtre de surface ---------------------------------------------------------
+    # Plage « pleine » (0 -> max du curseur) = pas de filtre. Borne haute au maximum du
+    # curseur = « et plus » (un bâtiment de 8 000 m² reste retenu). Usage sans aucune
+    # surface dans la base (bureaux) : filtre sans effet, signalé dans l'encadré.
+    _SURFACE_DISPONIBLE = _USAGE not in USAGES_SANS_SURFACE
+    _SREF_PLAGE_ACTIVE = (_SREF_MIN > 0 or _SREF_MAX < SREF_MAX_SLIDER) and _SURFACE_DISPONIBLE
+    _borne_haute = float("inf") if _SREF_MAX >= SREF_MAX_SLIDER else _SREF_MAX
+    if not _SURFACE_DISPONIBLE:
+        _texte_surface = f"non disponible pour l'usage « {_USAGE} » : filtre sans effet"
+    elif not _SREF_PLAGE_ACTIVE:
+        _texte_surface = "toutes (y compris surface inconnue)"
+    else:
+        _texte_surface = (f"{_SREF_MIN} à {_SREF_MAX} m²" if _SREF_MAX < SREF_MAX_SLIDER
+                          else f"{_SREF_MIN} m² et plus") + " (surface inconnue exclue)"
+    # Le bâtiment est gardé si son intervalle [sref_min ; sref_max] recoupe la plage
+    _expr_surface = (
+        (pl.col("sref_max") >= _SREF_MIN) & (pl.col("sref_min") <= _borne_haute)
+    ).fill_null(False)
+
+
+    # --- Sous-titre commun à tous les graphiques (résumé des filtres actifs) ------
+    def _resume(valeurs, si_vide="toutes"):
+        return ", ".join(str(v) for v in valeurs) if valeurs else si_vide
+
+    _sous_titre_sans_materiau = (
+        f"Surface : {_texte_surface} — "
+        f"Années de dépôt PC : {_resume(FILTRES['annees'])} — "
+        f"Zone climatique : {_resume(FILTRES['zones'])}"
+    )
+    SOUS_TITRE_FILTRES = f"{_sous_titre_sans_materiau} — Matériau structure : {_resume(FILTRES['materiaux'], 'tous')}"
+    # Variante pour les graphiques où le matériau est l'AXE (donc non filtré)
+    SOUS_TITRE_SANS_MATERIAU = _sous_titre_sans_materiau
+
+
+    # --- Encadré des filtres actifs, par catégorie (même découpage que le panneau) --
+    def resume_filtres(avec_materiau=True, avec_inconnus=True, parametres_graphique=None):
+        """Encadré résumant les filtres actifs, rangés comme dans le panneau.
+        - avec_materiau=False : graphique où le matériau est l'axe (filtre non appliqué).
+        - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
+        - parametres_graphique : dict {libellé : [textes]} des filtres propres au graphique,
+          ajoutés en dernière ligne de l'encadré (ex. {"Graphique 6": ["seuils RE2022"]})."""
+        _qualite = [
+            "bâtiments validés seulement" if _VALID_REGLES else "tous les bâtiments (non validés inclus)"
+        ]
+        if avec_inconnus:
+            _qualite.append("« Inconnu » masqués" if _CACHER_INCONNU else "« Inconnu » inclus")
+        _periode = [
+            f"années {_resume(FILTRES['annees'])}",
+            f"zones {_resume(FILTRES['zones'])}",
+        ]
+        _batiment = [f"surface : {_texte_surface}"]
+        if avec_materiau:
+            _batiment.append(f"matériaux {_resume(FILTRES['materiaux'], 'tous')}")
+        # Filtres propres au graphique (optionnels), une ligne par libellé
+        _lignes_graphique = "".join(
+            f"  \n**{_libelle}** : {' · '.join(_textes)}"
+            for _libelle, _textes in (parametres_graphique or {}).items()
+        )
+        return mo.callout(
+            mo.md(
+                "**Filtres actifs**  \n"
+                f"**Qualité** : {' · '.join(_qualite)}  \n"
+                f"**Période et lieu** : {' · '.join(_periode)}  \n"
+                f"**Bâtiment** : {' · '.join(_batiment)}"
+                f"{_lignes_graphique}"
+            ),
+            kind="neutral",
+        )
+
+
+    # --- Filtre matériau : l'option "None" correspond aux matériaux NON renseignés
+    # (NULL dans la base ; on accepte aussi un éventuel texte "None").
+    def _expr_materiau(selection):
+        _materiau = pl.col("dc_materiau_structure")
+        _valeurs = [m for m in selection if m != LIBELLE_MATERIAU_NUL]
+        _expr = _materiau.is_in(_valeurs).fill_null(False)
+        if LIBELLE_MATERIAU_NUL in selection:
+            _expr = _expr | _materiau.is_null() | (_materiau == LIBELLE_MATERIAU_NUL)
+        return _expr
+
+
+    def appliquer_filtres(df, *, filtre_materiau=True, filtre_inconnu=True, verbeux=True):
+        """Applique les filtres temps réel (polars, aucun appel réseau).
+
+        - filtre_materiau=False : ne filtre pas sur le matériau (graphiques où
+          le matériau est l'axe du graphique).
+        - filtre_inconnu=True : respecte l'option "Masquer les inconnus".
+        Ajoute aussi la colonne `tranche_sref` (taille des logements collectifs).
+        """
+        df = df.with_columns(expr_tranche_surface().alias("tranche_sref"))
+
+        # --- Liste des filtres : (libellé, actif ?, expression polars) ---------
+        _filtres = [
+            ("règles de validation", FILTRES["regles_validation"],
+             pl.col("regle_validation_globale") == True),
+            ("années de dépôt", bool(FILTRES["annees"]),
+             pl.col("annees_depot_pc").list.eval(pl.element().is_in(FILTRES["annees"])).list.any().fill_null(False)),
+            ("surface (sref)", _SREF_PLAGE_ACTIVE, _expr_surface),
+            ("zone climatique", bool(FILTRES["zones"]),
+             pl.col("zone_climatique").is_in(FILTRES["zones"])),
+            ("matériau de structure", filtre_materiau and bool(FILTRES["materiaux"]),
+             _expr_materiau(FILTRES["materiaux"])),
+            ("cacher « Inconnu »", filtre_inconnu and FILTRES["cacher_inconnu"],
+             pl.col("seuil") != "Inconnu"),
+        ]
+
+        if verbeux:
+            print(f"Bâtiments au départ : {df.height}")
+        for _libelle, _actif, _expression in _filtres:
+            if _actif:
+                df = df.filter(_expression)
+                if verbeux:
+                    print(f"  après filtre {_libelle} : {df.height}")
+        return df
+
+    return FILTRES, SOUS_TITRE_FILTRES, SOUS_TITRE_SANS_MATERIAU, appliquer_filtres, resume_filtres, valeurs_actives
 
 
 @app.cell(hide_code=True)
@@ -1234,6 +1353,7 @@ def param_graphique_1(mo, panneau_filtres):
     seuil_bas_iccons = mo.ui.slider(start=400, stop=700, step=50, show_value=True, label="La tranche basse de l'ic_construction pour séparer les projets ?")
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 1").text + '</div>'),
         panneau_filtres({
             "Graphique 1": mo.vstack([
@@ -1259,6 +1379,9 @@ def graphique_1(
     pl,
     px,
     seuil_bas_iccons,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # CELLULE — Graphique 1 : nombre de bâtiments par seuil RE2020 et par tranche
@@ -1332,7 +1455,7 @@ def graphique_1(
         r1, g1, b1 = _hex_vers_rgb(debut)
         r2, g2, b2 = _hex_vers_rgb(fin)
         if n == 1:
-            return [debut]
+            return ["#" + debut.lstrip("#")]
         return [
             "#{:02x}{:02x}{:02x}".format(
                 round(r1 + (r2 - r1) * i / (n - 1)),
@@ -1343,7 +1466,7 @@ def graphique_1(
         ]
 
 
-    _couleurs = _degrade_couleurs(len(_tranches_presentes), "E2ADF2", "574AE2")
+    _couleurs = _degrade_couleurs(len(_tranches_presentes), *PALETTE_HUB["degrade_ic"])   # charte HUB
     _couleur_par_tranche = dict(zip(_tranches_presentes, _couleurs))
 
     _fig = px.bar(
@@ -1360,6 +1483,7 @@ def graphique_1(
             "tranche_ic": "Tranche IC Construction",
         },
         title=f"<b>Graphique 1 — {GRAPHIQUES[1]} — {dropdown_usage.value}</b><br>"
+              f"{ligne_effectif(_df_graph.height)}<br>"
               f"<sup>{SOUS_TITRE_FILTRES}</sup>",
     )
     _fig.update_layout(
@@ -1368,9 +1492,8 @@ def graphique_1(
         yaxis=dict(title="Nombre de bâtiments"),
         bargap=0.4,
         bargroupgap=0.0,
-        width=900,
-        height=550,
-        margin=dict(t=100),
+        height=550,                  # largeur automatique (titre long : 900 px le coupait)
+        margin=dict(t=120),
     )
     _fig.update_traces(width=0.7)
 
@@ -1383,328 +1506,11 @@ def graphique_1(
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres()
+
     # Export : les données TRACÉES (nombre de bâtiments par seuil x tranche d'IC)
-    mo.vstack([_graphique, boutons_export(_agg.sort("seuil", "tranche_ic"), "graphique_1_batiments_par_tranche_ic")])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_1(resume_filtres):
-    # Résumé des filtres actifs du graphique 1, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres()
-    return
-
-
-@app.cell(hide_code=True)
-def constantes_filtres(pl):
-    # ============================================================================
-    # CELLULE — Constantes des filtres (surface, matériau), définies en UN seul endroit
-    #
-    #   - Cas général : tranches de sref_approx (surface de référence approchée, en m²).
-    #   - Logement collectif : tranches basées sur surface_baies_rset (taille des
-    #     logements), qui remplacent celles de sref pour cet usage.
-    #
-    # Matériau : "None" est le libellé affiché pour les matériaux NON RENSEIGNÉS
-    # (valeur NULL dans la base) -- cf. `appliquer_filtres`.
-    #
-    # Fournit :
-    #   - options_surface(usage)  : options du widget "surface" pour un usage
-    #   - LIBELLE_MATERIAU_NUL / MATERIAUX_OPTIONS : options du filtre matériau
-    #   - MODE_SURFACE_SREF_APPROX / MODE_SURFACE_SREF : libellés du choix "quel filtre de
-    #                               surface s'applique ?" ; SREF_MAX_SLIDER / SREF_PAS_SLIDER :
-    #                               bornes du curseur de sref
-    #   - CATEGORIES_MATERIAU / MAPPING_MATERIAU / COULEURS_CATEGORIES : regroupement
-    #                               des matériaux en 5 catégories (graphiques 4 et 8)
-    #   - expr_tranche_surface()  : expression polars donnant la tranche de chaque
-    #                               bâtiment (colonne `tranche_sref`)
-    # ============================================================================
-
-    # --- Paramètres ---------------------------------------------------------------
-    USAGE_LOGEMENT_COLLECTIF = "Logement collectif"
-    TRANCHES_SREF = ["< 75 m²", "Entre 75 et 99 m²", "Entre 100 et 149 m²", ">= 150 m²"]
-    TRANCHES_LOGEMENT_COLLECTIF = ["Petit logement coll.", "Logement coll. moyen", "Grand logement coll."]
-    # Deux filtres de surface possibles (un seul appliqué à la fois, au choix) :
-    #   - sref_approx : tranches (colonne `sref_approx` = ancienne colonne sref de la base ;
-    #                   surface_baies_rset pour les logements collectifs)
-    #   - sref        : plage en m² sur la colonne `sref` (renseignée pour les logements
-    #                   collectifs, via la fonction `retrouver_sref`)
-    MODE_SURFACE_SREF_APPROX = "sref_approx (tranches de surface)"
-    MODE_SURFACE_SREF = "sref (plage en m²)"
-    SREF_MAX_SLIDER = 5000          # = SREF_PLATEAU (fonction retrouver_sref) : les bâtiments "plateau" restent inclus
-    SREF_PAS_SLIDER = 10
-    LIBELLE_MATERIAU_NUL = "None"      # libellé de l'option "matériau non renseigné" (NULL)
-    MATERIAUX_OPTIONS = [
-        LIBELLE_MATERIAU_NUL,
-        "Acier", "Autre", "Béton", "Béton cellulaire", "Béton de bois", "Béton de chanvre",
-        "Béton fibré", "Béton haute performance", "Mixte: bois-béton", "Mixte: béton-acier",
-        "Pierre", "Terre crue", "Terre cuite", "Bois massif", "Bois massif reconstitué",
-    ]
-    # Regroupement des 15 matériaux de structure en 5 catégories (graphiques 4 et 8)
-    CATEGORIES_MATERIAU = ["Sans info", "Béton", "Terre cuite", "Acier", "Bas Carbone"]
-    MAPPING_MATERIAU = {
-        "Autre": "Sans info",
-        "Béton": "Béton", "Béton cellulaire": "Béton", "Béton de bois": "Béton",
-        "Béton fibré": "Béton", "Béton haute performance": "Béton",
-        "Béton de chanvre": "Béton", "Mixte: béton-acier": "Béton",
-        "Terre cuite": "Terre cuite",
-        "Acier": "Acier",
-        "Mixte: bois-béton": "Bas Carbone", "Pierre": "Bas Carbone", "Terre crue": "Bas Carbone",
-        "Bois massif": "Bas Carbone", "Bois massif reconstitué": "Bas Carbone",
-    }
-    COULEURS_CATEGORIES = {
-        "Sans info": "#EDEDED", "Béton": "#B0A99F", "Terre cuite": "#A26E2E",
-        "Acier": "#475F8F", "Bas Carbone": "#79A757",
-    }
-
-    _SEUIL_PETIT = 50      # surface_baies_rset <  50 -> petit
-    _SEUIL_GRAND = 200     # surface_baies_rset > 200 -> grand (50 à 200 inclus -> moyen)
-
-
-    def options_surface(usage):
-        """Options du filtre surface selon l'usage choisi."""
-        return TRANCHES_LOGEMENT_COLLECTIF if usage == USAGE_LOGEMENT_COLLECTIF else TRANCHES_SREF
-
-
-    def expr_tranche_surface():
-        """Tranche de surface de chaque bâtiment. Le choix se fait ligne par ligne
-        sur la colonne `usage` : logement collectif -> tranches de
-        surface_baies_rset ; sinon -> tranches de sref_approx. Valeur absente -> "Inconnu"."""
-        _baies = pl.col("surface_baies_rset").cast(pl.Float64, strict=False)
-        _tranche_logement_collectif = (
-            pl.when(_baies < _SEUIL_PETIT).then(pl.lit(TRANCHES_LOGEMENT_COLLECTIF[0]))
-            .when(_baies.is_between(_SEUIL_PETIT, _SEUIL_GRAND)).then(pl.lit(TRANCHES_LOGEMENT_COLLECTIF[1]))
-            .when(_baies > _SEUIL_GRAND).then(pl.lit(TRANCHES_LOGEMENT_COLLECTIF[2]))
-            .otherwise(pl.lit("Inconnu"))
-        )
-        # Bornes SUPÉRIEURES exclusives, enchaînées : aucune valeur décimale (ex. 99.5)
-        # ne tombe entre deux tranches.
-        _tranche_sref = (
-            pl.when(pl.col("sref_approx") < 75).then(pl.lit(TRANCHES_SREF[0]))
-            .when(pl.col("sref_approx") < 100).then(pl.lit(TRANCHES_SREF[1]))
-            .when(pl.col("sref_approx") < 150).then(pl.lit(TRANCHES_SREF[2]))
-            .when(pl.col("sref_approx") >= 150).then(pl.lit(TRANCHES_SREF[3]))
-            .otherwise(pl.lit("Inconnu"))
-        )
-        return (
-            pl.when(pl.col("usage") == USAGE_LOGEMENT_COLLECTIF)
-            .then(_tranche_logement_collectif)
-            .otherwise(_tranche_sref)
-        )
-
-    return (
-        CATEGORIES_MATERIAU,
-        COULEURS_CATEGORIES,
-        LIBELLE_MATERIAU_NUL,
-        MAPPING_MATERIAU,
-        MATERIAUX_OPTIONS,
-        MODE_SURFACE_SREF,
-        MODE_SURFACE_SREF_APPROX,
-        SREF_MAX_SLIDER,
-        SREF_PAS_SLIDER,
-        TRANCHES_LOGEMENT_COLLECTIF,
-        USAGE_LOGEMENT_COLLECTIF,
-        expr_tranche_surface,
-        options_surface,
-    )
-
-
-@app.cell(hide_code=True)
-def filtres_communs(
-    LIBELLE_MATERIAU_NUL,
-    MODE_SURFACE_SREF,
-    SREF_MAX_SLIDER,
-    cacher_inconnu,
-    choix_de_attestation,
-    choix_de_la_date,
-    choix_de_surface,
-    choix_materiau_structure,
-    choix_mode_surface,
-    choix_sref,
-    choix_valide_regles,
-    choix_zone_climatique,
-    expr_tranche_surface,
-    mo,
-    pl,
-):
-    # ============================================================================
-    # CELLULE — Filtres temps réel COMMUNS à tous les graphiques
-    #
-    # Une seule définition de la logique de filtrage (au lieu d'une copie par
-    # graphique). Fournit :
-    #   - FILTRES            : dict des sélections actives
-    #   - SOUS_TITRE_FILTRES : texte résumant les filtres (sous-titre de TOUS les graphiques)
-    #   - SOUS_TITRE_SANS_MATERIAU : idem sans le matériau (graphique où il est l'axe)
-    #   - appliquer_filtres  : fonction (DataFrame -> DataFrame filtré)
-    #   - valeurs_actives    : "tout sélectionné = pas de filtre" (réutilisable)
-    #   - resume_filtres     : résumé lisible des filtres actifs (affiché sous le panneau
-    #                          de filtres de chaque graphique)
-    #
-    # Toute modification d'un widget relance cette cellule, donc tous les
-    # graphiques qui en dépendent.
-    # ============================================================================
-
-    # ============================================================================
-    # PARAMÈTRES (toutes les variables au même endroit)
-    # ============================================================================
-    _VALID_REGLES = choix_valide_regles.value
-    _CACHER_INCONNU = cacher_inconnu.value
-
-
-    def valeurs_actives(widget):
-        """Sélection d'un widget sous forme de liste, remplacée par [] si
-        TOUTES les options sont sélectionnées (= pas de filtre réel).
-        Les options sont lues dynamiquement sur le widget : aucune liste codée
-        en dur à maintenir."""
-        valeur = widget.value
-        valeur = [valeur] if isinstance(valeur, str) else list(valeur) if valeur is not None else []
-        options = widget.options
-        toutes = list(options.keys()) if isinstance(options, dict) else list(options)
-        return [] if set(valeur) == set(toutes) else valeur
-
-
-    # Sélections actives. annees_depot_pc est stocké en Int64 : le multiselect
-    # renvoie des chaînes -> conversion en entiers.
-    FILTRES = {
-        "regles_validation": _VALID_REGLES,
-        "annees": [int(a) for a in valeurs_actives(choix_de_la_date)],
-        "attestations": valeurs_actives(choix_de_attestation),
-        # Surface : UN SEUL des deux filtres est appliqué, selon `mode_surface`
-        "mode_surface": "sref" if choix_mode_surface.value == MODE_SURFACE_SREF else "sref_approx",
-        "sref_approx": valeurs_actives(choix_de_surface),           # tranches
-        "sref_plage": [int(v) for v in choix_sref.value],           # [min, max] en m²
-        "zones": valeurs_actives(choix_zone_climatique),
-        "materiaux": valeurs_actives(choix_materiau_structure),
-        "cacher_inconnu": _CACHER_INCONNU,
-    }
-
-
-    # --- Sous-titre commun à tous les graphiques (résumé des filtres actifs) ------
-    def _resume(valeurs, si_vide="toutes"):
-        return ", ".join(str(v) for v in valeurs) if valeurs else si_vide
-
-    # Plage de sref "pleine" (0 -> max du curseur) = pas de filtre réel
-    _SREF_PLAGE_ACTIVE = FILTRES["sref_plage"] != [0, SREF_MAX_SLIDER]
-    if FILTRES["mode_surface"] == "sref":
-        _texte_surface = (
-            f"sref : {FILTRES['sref_plage'][0]}-{FILTRES['sref_plage'][1]} m²" if _SREF_PLAGE_ACTIVE else "sref : toutes"
-        )
-    else:
-        _texte_surface = f"sref_approx : {_resume(FILTRES['sref_approx'])}"
-
-    _sous_titre_sans_materiau = (
-        f"Surface ({_texte_surface}) — "
-        f"Années de dépôt PC : {_resume(FILTRES['annees'])} — "
-        f"Types d'attestation : {_resume(FILTRES['attestations'])} — "
-        f"Zone climatique : {_resume(FILTRES['zones'])}"
-    )
-    SOUS_TITRE_FILTRES = f"{_sous_titre_sans_materiau} — Matériau structure : {_resume(FILTRES['materiaux'], 'tous')}"
-    # Variante pour les graphiques où le matériau est l'AXE (donc non filtré)
-    SOUS_TITRE_SANS_MATERIAU = _sous_titre_sans_materiau
-
-
-    # --- Résumé des filtres actifs, par catégorie (même découpage que le panneau) --
-    def resume_filtres(avec_materiau=True, avec_inconnus=True, parametres_graphique=None):
-        """Encadré résumant les filtres actifs, rangés comme dans le panneau.
-        - avec_materiau=False : graphique où le matériau est l'axe (filtre non appliqué).
-        - avec_inconnus=False : graphique qui n'applique pas « Masquer les inconnus ».
-        - parametres_graphique : dict {libellé : [textes]} des filtres propres au graphique,
-          ajoutés en dernière ligne de l'encadré (ex. {"Graphique 6": ["seuils RE2022"]})."""
-        _qualite = [
-            "bâtiments validés seulement" if _VALID_REGLES else "tous les bâtiments (non validés inclus)"
-        ]
-        if avec_inconnus:
-            _qualite.append("« Inconnu » masqués" if _CACHER_INCONNU else "« Inconnu » inclus")
-        _periode = [
-            f"années {_resume(FILTRES['annees'])}",
-            f"attestations {_resume(FILTRES['attestations'])}",
-            f"zones {_resume(FILTRES['zones'])}",
-        ]
-        _batiment = [f"surface ({_texte_surface})"]
-        if avec_materiau:
-            _batiment.append(f"matériaux {_resume(FILTRES['materiaux'], 'tous')}")
-        # Filtres propres au graphique (optionnels), une ligne par libellé
-        _lignes_graphique = "".join(
-            f"  \n**{_libelle}** : {' · '.join(_textes)}"
-            for _libelle, _textes in (parametres_graphique or {}).items()
-        )
-        return mo.callout(
-            mo.md(
-                "**Filtres actifs**  \n"
-                f"**Qualité** : {' · '.join(_qualite)}  \n"
-                f"**Période et lieu** : {' · '.join(_periode)}  \n"
-                f"**Bâtiment** : {' · '.join(_batiment)}"
-                f"{_lignes_graphique}"
-            ),
-            kind="neutral",
-        )
-
-
-    # --- Filtre matériau : l'option "None" correspond aux matériaux NON renseignés
-    # (NULL dans la base ; on accepte aussi un éventuel texte "None").
-    def _expr_materiau(selection):
-        _materiau = pl.col("dc_materiau_structure")
-        _valeurs = [m for m in selection if m != LIBELLE_MATERIAU_NUL]
-        _expr = _materiau.is_in(_valeurs).fill_null(False)
-        if LIBELLE_MATERIAU_NUL in selection:
-            _expr = _expr | _materiau.is_null() | (_materiau == LIBELLE_MATERIAU_NUL)
-        return _expr
-
-
-    def appliquer_filtres(df, *, filtre_materiau=True, filtre_inconnu=True, verbeux=True):
-        """Applique les filtres temps réel (polars, aucun appel réseau).
-
-        - filtre_materiau=False : ne filtre pas sur le matériau (graphiques où
-          le matériau est l'axe du graphique).
-        - filtre_inconnu=True : respecte l'option "Masquer les inconnus".
-        Ajoute aussi la colonne `tranche_sref`.
-        """
-        # --- Tranche de surface (sref_approx, ou surface_baies_rset pour les logements
-        #     collectifs) : cf. cellule `constantes_filtres` ---------------------
-        df = df.with_columns(expr_tranche_surface().alias("tranche_sref"))
-
-        if (FILTRES["mode_surface"] == "sref" and _SREF_PLAGE_ACTIVE and df.height > 0
-                and df["sref"].null_count() == df.height):
-            print("  ATTENTION : la colonne `sref` est vide (renseignée seulement pour les "
-                  "logements collectifs, via `retrouver_sref`) : le filtre sref exclut tout.")
-
-        # --- Liste des filtres : (libellé, actif ?, expression polars) ---------
-        _filtres = [
-            ("règles de validation", FILTRES["regles_validation"],
-             pl.col("regle_validation_globale") == True),
-            ("années de dépôt", bool(FILTRES["annees"]),
-             pl.col("annees_depot_pc").list.eval(pl.element().is_in(FILTRES["annees"])).list.any().fill_null(False)),
-            ("type d'attestation", bool(FILTRES["attestations"]),
-             pl.col("types_attestation").list.eval(pl.element().is_in(FILTRES["attestations"])).list.any().fill_null(False)),
-            ("surface (sref_approx : tranches)", FILTRES["mode_surface"] == "sref_approx" and bool(FILTRES["sref_approx"]),
-             pl.col("tranche_sref").is_in(FILTRES["sref_approx"])),
-            ("surface (sref : plage en m²)", FILTRES["mode_surface"] == "sref" and _SREF_PLAGE_ACTIVE,
-             pl.col("sref").is_between(FILTRES["sref_plage"][0], FILTRES["sref_plage"][1]).fill_null(False)),
-            ("zone climatique", bool(FILTRES["zones"]),
-             pl.col("zone_climatique").is_in(FILTRES["zones"])),
-            ("matériau de structure", filtre_materiau and bool(FILTRES["materiaux"]),
-             _expr_materiau(FILTRES["materiaux"])),
-            ("cacher « Inconnu »", filtre_inconnu and FILTRES["cacher_inconnu"],
-             pl.col("seuil") != "Inconnu"),
-        ]
-
-        if verbeux:
-            print(f"Bâtiments au départ : {df.height}")
-        for _libelle, _actif, _expression in _filtres:
-            if _actif:
-                df = df.filter(_expression)
-                if verbeux:
-                    print(f"  après filtre {_libelle} : {df.height}")
-        return df
-
-    return FILTRES, SOUS_TITRE_FILTRES, SOUS_TITRE_SANS_MATERIAU, appliquer_filtres, resume_filtres, valeurs_actives
-
-
-@app.cell(hide_code=True)
-def saut_page_2(mo):
-    # Saut de page à l'impression avant le graphique 2 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, boutons_export(_agg.sort("seuil", "tranche_ic"), "graphique_1_batiments_par_tranche_ic"), _encadre_filtres])
     return
 
 
@@ -1717,6 +1523,7 @@ def param_graphique_2(mo, panneau_filtres):
     # ============================================================================
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 2").text + '</div>'),
         panneau_filtres(avec_inconnus=False),
     ])
@@ -1735,6 +1542,10 @@ def graphique_2(
     go,
     mo,
     pl,
+    resume_filtres,
+    PALETTE_HUB,
+    POLICE_GRAPHIQUES,
+    ligne_effectif,
 ):
     # ============================================================================
     # CELLULE — Graphique 2 : répartition de l'impact carbone du bâtiment par seuil
@@ -1758,26 +1569,28 @@ def graphique_2(
     # --- Postes de l'impact carbone, DU BAS VERS LE HAUT de la pile ----------------
     # clé : (colonne de DATA_brut, libellé de la légende, couleur de la barre,
     #        couleur du chiffre dans la barre)
+    _C = PALETTE_HUB["postes"]          # couleurs du graphique « impact carbone » du modèle HUB
     _POSTES = {
-        "Composants": ("ic_composant", "Composants", "#283246", "white"),
-        "Chantier":   ("ic_chantier", "Chantier", "#B4BCCC", "black"),
-        "Énergie":    ("ic_energie", "Énergie", "#FFDA7A", "black"),
-        "Eau":        ("ic_eau", "Eau (sans seuil)", "#00B0F0", "black"),
+        "Composants": ("ic_composant", "Composants", _C["Composants"], "white"),
+        "Chantier":   ("ic_chantier", "Chantier", _C["Chantier"], "black"),
+        "Énergie":    ("ic_energie", "Énergie", _C["Énergie"], "black"),
+        "Eau":        ("ic_eau", "Eau (sans seuil)", _C["Eau"], "black"),
     }
     # Poste dont le chiffre est écrit sur un petit fond de la couleur de la barre (le bloc,
     # très fin, est chevauché par les voisins : sans fond, le chiffre serait illisible)
     _POSTE_CHANTIER = "Chantier"
     # Postes avec bulle de pourcentage (l'eau n'en a pas) : couleur de la bulle
-    _BULLES = {"Composants": "#283246", "Chantier": "#8892A6", "Énergie": "#FFC000"}
+    _BULLES = {"Composants": PALETTE_HUB["base"]["bleu_nuit"], "Chantier": PALETTE_HUB["base"]["bleu_ardoise"],
+               "Énergie": PALETTE_HUB["base"]["jaune_vif"]}
 
     # --- Dimensions et mise en page ------------------------------------------------
     _LARGEUR, _HAUTEUR = 1180, 640
-    _MARGE_HAUT, _MARGE_BAS, _MARGE_GAUCHE, _MARGE_DROITE = 110, 90, 90, 30
+    _MARGE_HAUT, _MARGE_BAS, _MARGE_GAUCHE, _MARGE_DROITE = 130, 90, 90, 30
     _LARGEUR_BARRE = 0.45               # largeur d'une barre (en unité d'axe x)
     _X_MIN = -0.75                      # bornes de l'axe x (la 1re barre est en x = 0)
     _MARGE_X_DROITE = 0.65              # espace à droite de la dernière barre (unité d'axe x)
     _COEF_Y_MAX = 1.35                  # axe y = total le plus haut x ce coefficient (place pour la légende)
-    _POLICE = "Calibri, Carlito, Arial"
+    _POLICE = POLICE_GRAPHIQUES          # police de la charte HUB
 
     # --- Bulles de pourcentage (ellipses dimensionnées en pixels) ------------------
     _BULLE_LARGEUR_PX, _BULLE_HAUTEUR_PX = 60, 34
@@ -1785,7 +1598,7 @@ def graphique_2(
     _BULLE_ECART_MIN_PX = 40            # distance verticale minimale entre deux bulles
 
     # --- Mot « construction » (composants + chantier, 1re barre seulement) ---------
-    _COULEUR_CONSTRUCTION = "#8a8a8a"
+    _COULEUR_CONSTRUCTION = PALETTE_HUB["base"]["gris_fonce"]
     _ACCOLADE_DECALAGE_PX = 55          # distance entre le bord de la barre et le trait gris
     _TEXTE_CONSTRUCTION_DECALAGE_PX = 14  # distance entre le trait gris et le texte vertical
 
@@ -1946,6 +1759,7 @@ def graphique_2(
         annotations=_annotations,
         title=dict(
             text=f"<b>Graphique 2 — {GRAPHIQUES[2]} — {_USAGE}</b><br>"
+                 f"{ligne_effectif(_df.height)}<br>"
                  f"<sup>{SOUS_TITRE_FILTRES} — moyenne par seuil, arrondie à l'unité</sup>",
             font=dict(size=18),
         ),
@@ -1978,23 +1792,10 @@ def graphique_2(
               "(composants, chantier, énergie, eau) n'est pas renseigné.*")
         if _nb_exclus else mo.md("")
     )
-    mo.vstack([_graphique, _note_exclus, boutons_export(_export, "graphique_2_repartition_impact_carbone")])
-    return
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres(avec_inconnus=False)
 
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_2(resume_filtres):
-    # Résumé des filtres actifs du graphique 2, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres(avec_inconnus=False)
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_3(mo):
-    # Saut de page à l'impression avant le graphique 3 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, _note_exclus, boutons_export(_export, "graphique_2_repartition_impact_carbone"), _encadre_filtres])
     return
 
 
@@ -2004,6 +1805,7 @@ def param_graphique_3(mo, panneau_filtres):
     valeur_exclusion_lots = mo.ui.range_slider(start=0, stop=500, step=10, value=[0, 300], label="Un lot est compris entre :", show_value=True)
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 3").text + '</div>'),
         panneau_filtres({
             "Graphique 3": mo.vstack([
@@ -2029,6 +1831,9 @@ def graphique_3(
     pl,
     px,
     valeur_exclusion_lots,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # CELLULE — Graphique 3 (lots)
@@ -2058,14 +1863,13 @@ def graphique_3(
         "ic_composant_lot_13": "13. Photovoltaique",
     }
 
-    _couleurs = {
-        "ic_composant_lot_1": "#808080",
-        "ic_composant_lot_2": "#9ECAE1", "ic_composant_lot_3": "#2171B5",
-        "ic_composant_lot_4": "#FCBBA1", "ic_composant_lot_5": "#FC9272",
-        "ic_composant_lot_6": "#EF3B2C", "ic_composant_lot_7": "#99000D",
-        "ic_composant_lot_8": "#BAE4B3", "ic_composant_lot_9": "#74C476",
-        "ic_composant_lot_10": "#41AB5D", "ic_composant_lot_11": "#238B45",
-        "ic_composant_lot_12": "#006D2C", "ic_composant_lot_13": "#00441B",
+    # Couleurs des lots : graphique « par lot » du modèle HUB (cellule liste_graphiques)
+    _couleurs = {f"ic_composant_lot_{_i}": PALETTE_HUB["lots"][_i] for _i in range(1, 14)}
+    # Couleur des étiquettes de macro-lots (pourcentages)
+    _COULEURS_MACRO = {
+        "Lots 2–3": PALETTE_HUB["macro_lots"]["Gros œuvre"],
+        "Lots 4–7": PALETTE_HUB["macro_lots"]["Second œuvre"],
+        "Lots 8–13": PALETTE_HUB["macro_lots"]["Lots techniques"],
     }
 
     # --- 1. Filtres communs (cellule `filtres_communs`) --------------------------
@@ -2145,7 +1949,6 @@ def graphique_3(
         textfont={
             "size": 12,
             "color": "black",
-            "family": "Arial Black",
         },
         hovertemplate="<b>%{x}</b><br>Moyenne IC composant : %{y:.2f}<extra></extra>",
     )
@@ -2179,17 +1982,12 @@ def graphique_3(
             _proportion = _valeur_groupe / _total_lots_2_13 * 100
             _position_centre = _position + (_valeur_groupe / 2)
 
-            if _nom_groupe == "Lots 2–3":
-                _couleur_texte = "#084594"
-            elif _nom_groupe == "Lots 4–7":
-                _couleur_texte = "#99000D"
-            else:
-                _couleur_texte = "#0C562A"
-
+            # Étiquette blanche sur fond de la couleur du macro-lot (bulles du modèle HUB)
             _fig.add_annotation(
-                x=_seuil, y=_position_centre, text=f"{_proportion:.0f} %",
+                x=_seuil, y=_position_centre, text=f"<b>{_proportion:.0f} %</b>",
                 showarrow=False,
-                font={"size": 13, "color": _couleur_texte, "family": "Arial Black"},
+                font={"size": 13, "color": "white"},
+                bgcolor=_COULEURS_MACRO[_nom_groupe], borderpad=3,
                 xanchor="center", yanchor="middle",
             )
             _position += _valeur_groupe
@@ -2212,6 +2010,7 @@ def graphique_3(
         title={
             "text": (
                 f"<b>Graphique 3 — {GRAPHIQUES[3]} — {dropdown_usage.value}</b><br>"
+                f"{ligne_effectif(_df.height)}<br>"
                 f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
         },
@@ -2222,32 +2021,21 @@ def graphique_3(
         yaxis={"title": "kgCO₂e/m².50ans", "rangemode": "tozero"},
         legend_title="Lot",
         legend={"traceorder": "reversed"},
-        margin={"l": 60, "r": 20, "t": 90, "b": 60},
+        margin={"l": 60, "r": 20, "t": 110, "b": 60},
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
+
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres()
 
     # Export : les données TRACÉES (IC moyen de chaque lot, par seuil)
     mo.vstack([_graphique, boutons_export(
         _df_long.drop("_lot").with_columns(pl.col("composant").replace(_NOMS_LOTS).alias("lot")).drop("composant"),
         "graphique_3_ic_moyen_par_lot",
-    )])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_3(resume_filtres):
-    # Résumé des filtres actifs du graphique 3, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres()
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_4(mo):
-    # Saut de page à l'impression avant le graphique 4 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    ),
+        _encadre_filtres,
+    ])
     return
 
 
@@ -2259,6 +2047,7 @@ def param_graphique_4(mo, panneau_filtres):
     # ============================================================================
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 4").text + '</div>'),
         panneau_filtres(avec_materiau=False),
     ])
@@ -2281,6 +2070,8 @@ def graphique_4(
     go,
     mo,
     pl,
+    resume_filtres,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 4 — Médiane IC Composant par matériau de structure, par seuil
@@ -2409,7 +2200,9 @@ def graphique_4(
             # le pourcentage reste simplement centré verticalement.
             _fig.add_annotation(
                 x=_x_centre, y=_mediane / 2, text=f"<b>{_pourcentage:.0f}%</b>", showarrow=False,
-                font={"size": 11, "color": "black"}, xanchor="center",
+                # texte blanc sur les couleurs foncées de la charte (béton, acier, bas carbone)
+                font={"size": 11, "color": "white" if _categorie in ("Béton", "Acier", "Bas Carbone") else "black"},
+                xanchor="center",
             )
 
             _x_debut_barre += _largeur
@@ -2423,7 +2216,7 @@ def graphique_4(
         title=dict(
             text=(
                 f"<b>Graphique 4 — {GRAPHIQUES[4]} — {_USAGE}</b><br>"
-                f"<sup>Largeur des barres proportionnelle à la part de bâtiments</sup><br>"
+                f"{ligne_effectif(_df.height)} — <sup>largeur des barres proportionnelle à la part de bâtiments</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
             font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
@@ -2434,7 +2227,7 @@ def graphique_4(
         ),
         yaxis=dict(title="Médiane IC Composant (kgCO₂e/m².50ans)"),
         legend=dict(title="Matériau", orientation="h", x=0.5, xanchor="center", y=-0.15, yanchor="top"),
-        margin=dict(t=120, b=90, l=60, r=20),
+        margin=dict(t=130, b=90, l=60, r=20),
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
@@ -2450,23 +2243,10 @@ def graphique_4(
         .sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99),
               pl.col("categorie_materiau").replace_strict({c: i for i, c in enumerate(CATEGORIES_MATERIAU)}, default=99))
     )
-    mo.vstack([_graphique, boutons_export(_export, "graphique_4_mediane_ic_par_materiau")])
-    return
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres(avec_materiau=False)
 
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_4(resume_filtres):
-    # Résumé des filtres actifs du graphique 4, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres(avec_materiau=False)
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_5(mo):
-    # Saut de page à l'impression avant le graphique 5 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, boutons_export(_export, "graphique_4_mediane_ic_par_materiau"), _encadre_filtres])
     return
 
 
@@ -2477,6 +2257,7 @@ def param_graphique_5(mo, panneau_filtres):
     # ============================================================================
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 5").text + '</div>'),
         panneau_filtres(),
     ])
@@ -2496,6 +2277,9 @@ def graphique_5(
     go,
     mo,
     pl,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 5 — Nombre de fiches ACV par type, Q1 / total / Q3 par seuil RE2020
@@ -2541,27 +2325,28 @@ def graphique_5(
     # --- Couleurs (palette validée par Guigui le 15/10/2026) ----------------------
     # FDES / PEP : teinte des fiches individuelles (la table bâtiment ne distingue pas
     # individuelles et collectives).
+    _F = PALETTE_HUB["fiches"]           # charte HUB : FDES vert sauge, PEP bleu ardoise, DED orange HUB
     _COULEURS_SEGMENTS = {
-        "FDES": "#55A868",                # vert
-        "Fiches configurées": "#4C72B0",  # fond bleu (hachures vertes, cf. _HACHURES)
-        "PEP": "#4C72B0",                 # bleu
-        "PEP extrapolées": "#4C72B0",     # bleu hachuré (cf. _HACHURES)
-        "DED": "#DD8452",                 # orange
-        "Autres": "#CFCFCF",              # gris clair
+        "FDES": _F["FDES"],
+        "Fiches configurées": _F["PEP"],  # fond PEP (hachures FDES, cf. _HACHURES)
+        "PEP": _F["PEP"],
+        "PEP extrapolées": _F["PEP"],     # PEP hachuré (cf. _HACHURES)
+        "DED": _F["DED"],
+        "Autres": _F["Autres"],
     }
     # Segments hachurés : {segment : (motif, couleur des hachures, couleur du fond)}
     #   - Fiches configurées : une fiche configurée est une FDES ou une PEP
     #     -> hachures vertes (FDES) sur fond bleu (PEP)
     #   - PEP extrapolées : hachures bleues sur fond blanc
     _HACHURES = {
-        "Fiches configurées": ("/", "#55A868", "#4C72B0"),
-        "PEP extrapolées": ("/", "#4C72B0", "white"),
+        "Fiches configurées": ("/", _F["FDES"], _F["PEP"]),
+        "PEP extrapolées": ("/", _F["PEP"], "white"),
     }
     _TAILLE_HACHURES = 9
     _DENSITE_HACHURES = 0.5
     _COULEUR_TEXTE_SEGMENTS = {
         "FDES": "white", "Fiches configurées": "white", "PEP": "white",
-        "PEP extrapolées": "#1F3A66", "DED": "white", "Autres": "#333333",
+        "PEP extrapolées": PALETTE_HUB["base"]["bleu_nuit"], "DED": "white", "Autres": "#333333",
     }
     _COULEUR_TOTAL = "#333333"         # point et barre du total
 
@@ -2700,6 +2485,7 @@ def graphique_5(
         uniformtext=dict(minsize=_TAILLE_MIN_TEXTE, mode="hide"),
         title=dict(
             text=f"<b>Graphique 5 — {GRAPHIQUES[5]} — {_USAGE}</b><br>"
+                 f"{ligne_effectif(_df.height)}<br>"
                  f"<sup>Q1 / Q3 : quartile de chaque type de fiche, empilés (Σ = somme des quartiles) ; "
                  f"Total : toutes les fiches sauf DES (point = médiane, barre = Q1 à Q3)</sup><br>"
                  f"<sup>{SOUS_TITRE_FILTRES}</sup>",
@@ -2711,7 +2497,7 @@ def graphique_5(
         ),
         yaxis=dict(title="Nombre de fiches"),
         legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top"),
-        margin=dict(t=130, b=140, l=60, r=20),
+        margin=dict(t=150, b=140, l=60, r=20),
         annotations=_annotations,
     )
 
@@ -2719,23 +2505,10 @@ def graphique_5(
 
     # Export : les données TRACÉES (Q1 / Q3 de chaque segment, Q1 / médiane / Q3 du total, par seuil)
     _export = _agg.sort(pl.col("seuil").replace_strict({s: i for i, s in enumerate(_ORDRE_SEUILS)}, default=99))
-    mo.vstack([_graphique, boutons_export(_export, "graphique_5_quartiles_fiches_par_seuil")])
-    return
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres()
 
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_5(resume_filtres):
-    # Résumé des filtres actifs du graphique 5, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres()
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_6(mo):
-    # Saut de page à l'impression avant le graphique 6 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, boutons_export(_export, "graphique_5_quartiles_fiches_par_seuil"), _encadre_filtres])
     return
 
 
@@ -2761,6 +2534,7 @@ def param_graphique_6(mo, panneau_filtres):
     exclure_grands_6 = mo.ui.switch(label="Exclure les « Grand logement coll. » (baies RSET > 200 m²)", value=True)
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 6").text + '</div>'),
         panneau_filtres(
             {"Graphique 6": mo.vstack([case_sous_lots_6, exclure_petits_6, exclure_grands_6])},
@@ -2835,6 +2609,9 @@ def graphique_6(
     mo,
     pl,
     valeurs_actives,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 6 — Nombre de fiches par lot RE2020 et par nature de fiche
@@ -2896,35 +2673,36 @@ def graphique_6(
     _NOM_EXTRAPOLEE = "PEP extrapolée"
     _NOM_FORFAIT = "Forfaitaire (conventionnelle)"
     _NOM_AUTRES = "Autres (surtout réemploi et parfois vide)"
+    _F = PALETTE_HUB["fiches"]                      # charte HUB : FDES vert, PEP bleu, DED orange
     _NATURES = {
-        "FDES individuelle": "#55A868",
-        _NOM_FDES_CONFIGUREE: "#55A868",            # hachuré vert / vert clair (cf. _MOTIFS)
-        "FDES collective": "#A9D3B2",
-        "FDES non précisée": "#DCEFE0",
-        _NOM_CONFIGUREE: "#55A868",                 # hachuré vert / bleu (cf. _MOTIFS)
-        "PEP individuelle": "#4C72B0",
-        "PEP collective": "#A9BEDD",
-        "PEP non précisée": "#DCE5F3",
-        _NOM_EXTRAPOLEE: "#4C72B0",                 # hachuré bleu / blanc (cf. _MOTIFS)
-        "DED": "#DD8452",
-        _NOM_FORFAIT: "#8A8A8A",
-        _NOM_AUTRES: "#CFCFCF",
+        "FDES individuelle": _F["FDES"],
+        _NOM_FDES_CONFIGUREE: _F["FDES"],           # hachuré FDES / FDES claire (cf. _MOTIFS)
+        "FDES collective": _F["FDES claire"],
+        "FDES non précisée": _F["FDES pâle"],
+        _NOM_CONFIGUREE: _F["FDES"],                # hachuré FDES / PEP (cf. _MOTIFS)
+        "PEP individuelle": _F["PEP"],
+        "PEP collective": _F["PEP claire"],
+        "PEP non précisée": _F["PEP pâle"],
+        _NOM_EXTRAPOLEE: _F["PEP"],                 # hachuré PEP / blanc (cf. _MOTIFS)
+        "DED": _F["DED"],
+        _NOM_FORFAIT: _F["Forfaitaire"],
+        _NOM_AUTRES: _F["Autres"],
     }
     # Natures tracées en hachures (motif Plotly : rayures fgcolor sur fond bgcolor)
     _MOTIFS = {
-        _NOM_FDES_CONFIGUREE: {"shape": "/", "fgcolor": "#55A868", "bgcolor": "#A9D3B2", "size": 8, "solidity": 0.5},
-        _NOM_CONFIGUREE: {"shape": "/", "fgcolor": "#55A868", "bgcolor": "#4C72B0", "size": 12, "solidity": 0.5},
-        _NOM_EXTRAPOLEE: {"shape": "/", "fgcolor": "#4C72B0", "bgcolor": "white", "size": 6},
+        _NOM_FDES_CONFIGUREE: {"shape": "/", "fgcolor": _F["FDES"], "bgcolor": _F["FDES claire"], "size": 8, "solidity": 0.5},
+        _NOM_CONFIGUREE: {"shape": "/", "fgcolor": _F["FDES"], "bgcolor": _F["PEP"], "size": 12, "solidity": 0.5},
+        _NOM_EXTRAPOLEE: {"shape": "/", "fgcolor": _F["PEP"], "bgcolor": "white", "size": 6},
     }
     # Natures foncées : étiquette en blanc (les autres : étiquette sombre)
-    _NATURES_TEXTE_BLANC = {"FDES individuelle", _NOM_CONFIGUREE, "PEP individuelle", "DED", _NOM_FORFAIT}
+    _NATURES_TEXTE_BLANC = {"FDES individuelle", _NOM_CONFIGUREE, "PEP individuelle", "DED"}
     _RANG_NATURE = {n: i for i, n in enumerate(_NATURES)}
 
     # --- Gros chiffres sous le graphique : macro-lots (groupes et couleurs du graphique 3)
     _MACRO_LOTS = {
-        "Gros œuvre": {"lots": [2, 3], "texte_lots": "lots 2 et 3", "couleur": "#084594"},          # bleu
-        "Second œuvre": {"lots": [4, 5, 6, 7], "texte_lots": "lots 4 à 7", "couleur": "#99000D"},   # rouge
-        "Lots techniques": {"lots": list(range(8, 14)), "texte_lots": "lots 8 à 13", "couleur": "#0C562A"},  # vert
+        "Gros œuvre": {"lots": [2, 3], "texte_lots": "lots 2 et 3", "couleur": PALETTE_HUB["macro_lots"]["Gros œuvre"]},
+        "Second œuvre": {"lots": [4, 5, 6, 7], "texte_lots": "lots 4 à 7", "couleur": PALETTE_HUB["macro_lots"]["Second œuvre"]},
+        "Lots techniques": {"lots": list(range(8, 14)), "texte_lots": "lots 8 à 13", "couleur": PALETTE_HUB["macro_lots"]["Lots techniques"]},
     }
     # Deux camps comparés (en nombre de fiches). Les « Autres » (réemploi, vide) ne sont
     # dans aucun des deux : ils sont retirés du dénominateur et signalés à part.
@@ -2956,7 +2734,7 @@ def graphique_6(
 
     # Fiches des bâtiments retenus, lots 1 à 13 uniquement
     _lot = pl.col("lot_ref").cast(pl.Int64, strict=False)
-    _fiches = COMPOSANTS_LC.filter(pl.col("ID").is_in(_ids) & _lot.is_between(_LOT_MIN, _LOT_MAX))
+    _fiches = COMPOSANTS_LC.filter(pl.col("ID").is_in(_ids.to_list()) & _lot.is_between(_LOT_MIN, _LOT_MAX))
 
     mo.stop(
         _fiches.height == 0,
@@ -3115,12 +2893,12 @@ def graphique_6(
         template="plotly_white", barmode="stack", bargap=0.35, height=max(460, 34 * _lignes.height + 260),
         title=dict(
             text=f"<b>Graphique 6 — {GRAPHIQUES[6]} — {_USAGE}</b><br>"
-                 f"<sup>{_nb_batiments_total} bâtiments ayant des fiches, {int(_f['nb_fiches'].sum())} fiches"
-                 f" — Seuils IC construction : {_TEXTE_SEUILS}</sup><br>"
+                 f"{ligne_effectif(int(_f['nb_fiches'].sum()), 'fiches', f'{_nb_batiments_total} bâtiments ayant des fiches, sur {_df_bat.height} retenus')}<br>"
+                 f"<sup>Seuils IC construction : {_TEXTE_SEUILS}</sup><br>"
                  f"<sup>{SOUS_TITRE_FILTRES}</sup>",
             font=dict(size=20),
         ),
-        margin={"l": 10, "r": 90, "t": 130, "b": 20},
+        margin={"l": 10, "r": 90, "t": 150, "b": 20},
         uniformtext={"minsize": 9, "mode": "show"},     # garde les petites étiquettes (>= 3 %)
         xaxis={"range": [0, 100], "title": "% du nombre de fiches"},
         yaxis={"autorange": "reversed", "categoryorder": "array", "categoryarray": _lignes["groupe"].to_list()},
@@ -3173,6 +2951,14 @@ def graphique_6(
             Lot 1 (VRD) non compté, comme au graphique 3 ; réemploi et composants vides hors calcul.</div>
         </div>""")
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _SEUILS = valeurs_actives(choix_seuils_6)
+    _EXCLUS = (["petits"] if exclure_petits_6.value else []) + (["grands"] if exclure_grands_6.value else [])
+    _encadre_filtres = resume_filtres(parametres_graphique={"Graphique 6": [
+        f"seuils {', '.join(_SEUILS) if _SEUILS else 'tous'}",
+        f"logements {' et '.join(_EXCLUS)} exclus" if _EXCLUS else "tous logements (petits et grands inclus)",
+    ]})
+
     mo.vstack([
         _graphique,
         _gros_chiffres,
@@ -3182,36 +2968,8 @@ def graphique_6(
         boutons_export(_parts_macro, "graphique_6_parts_par_macro_lot"),
         mo.Html('<div class="pas-imprime">' + mo.md("**Détail par bâtiment, lot, sous-lot et nature**").text + '</div>'),
         boutons_export(_detail, "graphique_6_detail_par_batiment"),
+        _encadre_filtres,
     ])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_6(
-    choix_seuils_6,
-    exclure_grands_6,
-    exclure_petits_6,
-    resume_filtres,
-    valeurs_actives,
-):
-    # Résumé des filtres actifs du graphique 6, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    # Dernière ligne : filtres propres au graphique 6 (seuils, petits / grands logements).
-    _SEUILS = valeurs_actives(choix_seuils_6)
-    _EXCLUS = (["petits"] if exclure_petits_6.value else []) + (["grands"] if exclure_grands_6.value else [])
-
-    resume_filtres(parametres_graphique={"Graphique 6": [
-        f"seuils {', '.join(_SEUILS) if _SEUILS else 'tous'}",
-        f"logements {' et '.join(_EXCLUS)} exclus" if _EXCLUS else "tous logements (petits et grands inclus)",
-    ]})
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_7(mo):
-    # Saut de page à l'impression avant le graphique 7 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
     return
 
 
@@ -3232,6 +2990,7 @@ def param_graphique_7(mo, panneau_filtres):
     )
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 7").text + '</div>'),
         panneau_filtres({"Graphique 7": choix_seuil}),
     ])
@@ -3253,6 +3012,9 @@ def graphique_7(
     mo,
     pl,
     valeurs_actives,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     import math
     import statistics
@@ -3301,10 +3063,11 @@ def graphique_7(
         ("IC Énergie", "ic_energie", "ic_energie_max"),
     ]
 
-    _COULEURS_INDICATEURS = {
-        "Bbio": "#4C72B0", "Cep": "#DD8452", "Cep non renouvelable": "#C44E52",
-        "DH": "#8172B2", "IC Construction": "#55A868", "IC Énergie": "#CCB974",
-    }
+    # Les six couleurs de base de la charte HUB (cellule liste_graphiques), dans l'ordre
+    _COULEURS_INDICATEURS = dict(zip(
+        ["IC Construction", "IC Énergie", "Bbio", "Cep", "Cep non renouvelable", "DH"],
+        PALETTE_HUB["suite"],
+    ))
 
     _NB_COLONNES_GRILLE = 3
     _TAILLE_TITRE_PRINCIPAL = 24   # le choix du filtre "seuil", en grand
@@ -3565,33 +3328,21 @@ def graphique_7(
             text=(
                 f"<span style='font-size:{_TAILLE_TITRE_PRINCIPAL}px'><b>Seuil RE2020 : {_libelle_seuil}</b></span><br>"
                 f"<span style='font-size:16px'>Graphique 7 — {GRAPHIQUES[7]} — {_USAGE}</span><br>"
+                f"{ligne_effectif(_df.height, 'bâtiments', 'un point par bâtiment et par indicateur renseigné')}<br>"
                 f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
         ),
-        margin=dict(t=140, b=40, l=60, r=20),
+        margin=dict(t=180, b=40, l=60, r=20),
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres()
+
     # Export : les données TRACÉES (un point par bâtiment et par indicateur :
     # écart au seuil en %, avec l'ID du bâtiment)
-    mo.vstack([_graphique, boutons_export(pl.concat(_points_export), "graphique_7_ecarts_aux_seuils")])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_7(resume_filtres):
-    # Résumé des filtres actifs du graphique 7, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres()
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_8(mo):
-    # Saut de page à l'impression avant le graphique 8 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, boutons_export(pl.concat(_points_export), "graphique_7_ecarts_aux_seuils"), _encadre_filtres])
     return
 
 
@@ -3616,6 +3367,7 @@ def param_graphique_8(mo, panneau_filtres):
     )
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 8").text + '</div>'),
         panneau_filtres(
             {"Graphique 8": mo.vstack([choix_seuil_stock_c, choix_y_max_stock_c])},
@@ -3641,6 +3393,9 @@ def graphique_8(
     go,
     mo,
     pl,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 7 — Stock de carbone (stock_c) par type de matériau de structure
@@ -3672,11 +3427,11 @@ def graphique_8(
     _SOUS_TITRE_BAS_CARBONE = "Les bâtiments dont la structure est en bois, pierre ou terre crue sont « bas carbone »"
 
     _ORDRE_SEUILS = ["RE2022", "RE2025", "RE2028", "RE2031"]
-    _COULEURS_SEUIL = {"RE2022": "#E2ADF2", "RE2025": "#B58BEA", "RE2028": "#8A6BE6", "RE2031": "#574AE2"}
+    _COULEURS_SEUIL = PALETTE_HUB["seuils"]          # charte HUB, du moins au plus exigeant
 
     # Seuils du label bâtiment biosourcé 2024 (kg C / m²), identiques pour tous les usages
     _SEUILS_LABEL_BIOSOURCE = [(15, "niveau 1"), (25, "niveau 2"), (45, "niveau 3")]
-    _COULEUR_LABEL = "#2E7D32"
+    _COULEUR_LABEL = PALETTE_HUB["repere_biosource"]
 
     _NB_MIN_PAR_BOITE = 5     # une boîte de moins de 5 bâtiments n'est pas tracée
     _TAILLE_TITRE_GRAPHIQUE = 20
@@ -3788,9 +3543,9 @@ def graphique_8(
     # Médiane globale, affichée en haut et au milieu du graphique
     _fig.add_annotation(
         text=f"<b>Médiane globale : {_mediane_globale:.1f} kg C/m²</b> (n = {_n_global})",
-        xref="paper", yref="paper", x=0.5, y=1.0, yanchor="bottom",
+        xref="paper", yref="paper", x=0.5, y=0.99, yanchor="top",    # en haut, DANS la zone du graphique
         showarrow=False, font=dict(size=14),
-        bgcolor="rgba(255,255,255,0.9)", bordercolor="#888888", borderwidth=1, borderpad=4,
+        bgcolor="rgba(255,255,255,0.9)", bordercolor=PALETTE_HUB["repere_neutre"], borderwidth=1, borderpad=4,
     )
 
     _note_masquees = (
@@ -3803,6 +3558,7 @@ def graphique_8(
         title=dict(
             text=(
                 f"<b>Graphique 8 — {GRAPHIQUES[8]} — {_USAGE}</b><br>"
+                f"{ligne_effectif(_df_trace.height)}<br>"
                 f"<sup>{_SOUS_TITRE_BAS_CARBONE}</sup><br>"
                 f"<sup>Pointillés : seuils du label bâtiment biosourcé 2024{_note_masquees}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
@@ -3820,30 +3576,17 @@ def graphique_8(
         ),
         yaxis=dict(title="Stock carbone (kg C/m² SDP)", range=[0, _Y_MAX]),
         legend=dict(title="Seuil RE2020", orientation="h", x=0.5, xanchor="center", y=-0.15, yanchor="top"),
-        margin=dict(t=195, b=100, l=60, r=20),
+        margin=dict(t=245, b=100, l=60, r=20),
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres(avec_materiau=False)
+
     # Export : statistiques de chaque boîte (toutes les combinaisons, avec un
     # indicateur `boite_affichee` pour celles masquées faute d'effectif)
-    mo.vstack([_graphique, boutons_export(_agg, "graphique_8_stock_c_par_materiau_et_seuil")])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_8(resume_filtres):
-    # Résumé des filtres actifs du graphique 8, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres(avec_materiau=False)
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_9(mo):
-    # Saut de page à l'impression avant le graphique 9 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, boutons_export(_agg, "graphique_8_stock_c_par_materiau_et_seuil"), _encadre_filtres])
     return
 
 
@@ -3879,6 +3622,7 @@ def param_graphique_9(mo, panneau_filtres):
     )
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 9").text + '</div>'),
         panneau_filtres(
             {"Graphique 9": mo.vstack([choix_ecart_max_2028, choix_variable_categorielle_7])},
@@ -4039,6 +3783,8 @@ def graphique_9_numerique(
     go,
     mo,
     pl,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 9 (partie numérique) — Q1 / médiane / Q3 de chaque indicateur, pour
@@ -4061,9 +3807,9 @@ def graphique_9_numerique(
     _ANNEES_1B = [2024, 2025]                      # groupe 1b
     # (libellé court de l'axe, libellé complet de la légende, couleur) : 1a, 1b, puis 2
     _GROUPES = [
-        ("Groupe 1a", f"{NOMS_GROUPES_7[0]} — dépôt {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}", "#79A757"),   # vert
-        ("Groupe 1b", f"{NOMS_GROUPES_7[0]} — dépôt {_ANNEES_1B[0]}-{_ANNEES_1B[-1]}", "#B5D69C"),   # vert clair
-        ("Groupe 2", NOMS_GROUPES_7[1], "#A26E2E"),                                                 # brun
+        ("Groupe 1a", f"{NOMS_GROUPES_7[0]} — dépôt {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}", PALETTE_HUB["base"]["vert_sauge"]),
+        ("Groupe 1b", f"{NOMS_GROUPES_7[0]} — dépôt {_ANNEES_1B[0]}-{_ANNEES_1B[-1]}", PALETTE_HUB["base"]["vert_eau"]),
+        ("Groupe 2", NOMS_GROUPES_7[1], PALETTE_HUB["base"]["corail"]),
     ]
     _NB_COLONNES = 3
     _NB_MIN_PAR_GROUPE = 5          # en dessous, le groupe n'est pas tracé pour cet indicateur
@@ -4152,17 +3898,19 @@ def graphique_9_numerique(
 
     _fig.update_layout(
         template="plotly_white",
-        height=_HAUTEUR_PAR_LIGNE * _nb_lignes + 200,
+        height=_HAUTEUR_PAR_LIGNE * _nb_lignes + 225,
         title=dict(
             text=(
                 f"<b>Graphique 9 — {GRAPHIQUES[9]} — {_USAGE}</b><br>"
+                f"{ligne_effectif(_df.height)}<br>"
                 f"<sup>Point = médiane ; barre = de Q1 à Q3 ; groupe 1 scindé par année de dépôt du permis (1a : {_ANNEES_1A[0]}-{_ANNEES_1A[-1]}, 1b : {_ANNEES_1B[0]}-{_ANNEES_1B[-1]})</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
             font=dict(size=_TAILLE_TITRE_GRAPHIQUE),
+            y=1, yref="container", yanchor="top", pad=dict(t=28),   # titre ancré en haut (4 lignes)
         ),
         legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.08, yanchor="top"),
-        margin=dict(t=170, b=100, l=60, r=20),
+        margin=dict(t=215, b=100, l=60, r=20),
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
@@ -4186,6 +3934,9 @@ def graphique_9_categoriel(
     go,
     mo,
     pl,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 9 (partie catégorielle) — Répartition (%) d'une variable catégorielle
@@ -4205,9 +3956,10 @@ def graphique_9_categoriel(
     _LIBELLE_NON_RENSEIGNE = "Non renseigné"
     _MODALITES_MASQUEES = ["Autre", _LIBELLE_NON_RENSEIGNE, "None", ""]
     _SEUIL_TEXTE_PCT = 4            # sous ce pourcentage, pas d'étiquette dans le segment
-    _COULEURS = [
-        "#79A757", "#B0A99F", "#A26E2E", "#475F8F", "#E2ADF2",
-        "#B58BEA", "#574AE2", "#E8C66A", "#C0504D", "#4BACC6",
+    # Couleurs des modalités : charte HUB (six couleurs de base, puis compléments)
+    _COULEURS = PALETTE_HUB["suite"] + [
+        PALETTE_HUB["base"]["jaune_hub"], PALETTE_HUB["base"]["orange_hub"],
+        PALETTE_HUB["postes"]["Chantier"], PALETTE_HUB["lots"][3],
     ]
     _TAILLE_TITRE_GRAPHIQUE = 20
 
@@ -4272,6 +4024,7 @@ def graphique_9_categoriel(
         title=dict(
             text=(
                 f"<b>Graphique 9 — {GRAPHIQUES[9]} — {_USAGE}</b><br>"
+                f"{ligne_effectif(_df.height)}<br>"
                 f"<sup>Répartition : {_LIBELLE_VARIABLE}{_note_masque}</sup><br>"
                 f"<sup>{SOUS_TITRE_SANS_MATERIAU}</sup>"
             ),
@@ -4279,29 +4032,16 @@ def graphique_9_categoriel(
         ),
         yaxis=dict(title="Part du groupe (%)", range=[0, 100]),
         legend=dict(title=_LIBELLE_VARIABLE, orientation="v"),
-        margin=dict(t=170, b=80, l=60, r=20),
+        margin=dict(t=200, b=80, l=60, r=20),
     )
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres(avec_materiau=False, avec_inconnus=False)
+
     # Export : effectif et part de chaque modalité dans chaque groupe
-    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_9_repartition_categorielle")])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_9(resume_filtres):
-    # Résumé des filtres actifs du graphique 9, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres(avec_materiau=False, avec_inconnus=False)
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_10(mo):
-    # Saut de page à l'impression avant le graphique 10 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
+    mo.vstack([_graphique, boutons_export(_agg.sort("groupe", "n", descending=[False, True]), "graphique_9_repartition_categorielle"), _encadre_filtres])
     return
 
 
@@ -4335,6 +4075,7 @@ def param_graphique_10(mo, panneau_filtres):
     )
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 10").text + '</div>'),
         panneau_filtres(),
         choix_unite_dh,
@@ -4356,6 +4097,9 @@ def graphique_10(
     go,
     mo,
     pl,
+    resume_filtres,
+    PALETTE_HUB,
+    ligne_effectif,
 ):
     # ============================================================================
     # GRAPHIQUE 10 — Dispersion du DH (degrés-heures) par zone climatique.
@@ -4397,11 +4141,11 @@ def graphique_10(
 
     # Groupes tracés : libellé -> (couleur, décalage en x)
     _GROUPES_ZONE = {
-        "Traversante": ("#2A7F62", -0.2),
-        "Non traversante": ("#D9822B", 0.2),
+        "Traversante": (PALETTE_HUB["base"]["vert_sauge"], -0.2),
+        "Non traversante": (PALETTE_HUB["base"]["orange_hub"], 0.2),
     }
     _GROUPES_BATIMENT = {
-        "Bâtiment": ("#3D5A80", 0.0),
+        "Bâtiment": (PALETTE_HUB["base"]["bleu_nuit"], 0.0),
     }
     _LARGEUR_BOITE_ZONE = 0.32      # largeur d'une boîte (unités de l'axe x : 1 = écart entre zones climatiques)
     _LARGEUR_BOITE_BATIMENT = 0.5
@@ -4409,9 +4153,9 @@ def graphique_10(
 
     # Repères réglementaires (DH)
     _DH_MAX_REGLEMENTAIRE = 1250
-    _COULEUR_DH_MAX = "#C0392B"
+    _COULEUR_DH_MAX = PALETTE_HUB["repere_alerte"]
     _DH_SEUIL_BAS = 350
-    _COULEUR_SEUIL_BAS = "#888888"
+    _COULEUR_SEUIL_BAS = PALETTE_HUB["repere_neutre"]
 
     _TAILLE_TITRE_GRAPHIQUE = 20
 
@@ -4608,8 +4352,8 @@ def graphique_10(
     )
     _nb_au_dela = int(_agg["nb_au_dela_axe"].sum())
     _note_axe = f" — {_nb_au_dela} {_UNITE}(s) au-dessus de {_Y_MAX} non visible(s) (axe coupé)" if _nb_au_dela else ""
-    _effectif = (f"{_points.height} bâtiments" if _PAR_BATIMENT
-                 else f"{_points.height} zones de {_points['ID'].n_unique()} bâtiments")
+    _effectif = (ligne_effectif(_points.height, "bâtiments") if _PAR_BATIMENT
+                 else ligne_effectif(_points.height, "zones", f"{_points['ID'].n_unique()} bâtiments"))
     if _PAR_BATIMENT:
         _titre_axe_x = "Zone climatique  (n bâtiments)"
         _sous_ticks = {_zc: f"n = {_n_par_groupe.get((_zc, 'Bâtiment'), 0)}" for _zc in _zones_climatiques}
@@ -4626,7 +4370,8 @@ def graphique_10(
         title=dict(
             text=(
                 f"<b>Graphique 10 — {_TITRE} — {_USAGE}</b><br>"
-                f"<sup>Unité : {choix_unite_dh.value.lower()} — {_effectif}{_note_masquees}</sup><br>"
+                f"{_effectif}<br>"
+                f"<sup>Unité : {choix_unite_dh.value.lower()}{_note_masquees}</sup><br>"
                 + (f"<sup>{(_note_exclues + _note_axe).lstrip(' —')}</sup><br>" if (_note_exclues or _note_axe) else "")
                 + f"<sup>{SOUS_TITRE_FILTRES}</sup>"
             ),
@@ -4643,7 +4388,7 @@ def graphique_10(
         ),
         yaxis=dict(title=f"DH {'du bâtiment' if _PAR_BATIMENT else 'de la zone'} (°C·h)", range=[0, _Y_MAX]),
         legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.2, yanchor="top"),
-        margin=dict(t=210, b=110, l=60, r=20),
+        margin=dict(t=270, b=110, l=60, r=20),
     )
 
     # add_annotation (et non update_layout(annotations=...)) : ajoute aux annotations
@@ -4685,33 +4430,20 @@ def graphique_10(
         )
         _nom = "graphique_10_dh_par_zone"
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres(parametres_graphique={"Graphique 10": [
+        f"unité : {choix_unite_dh.value.lower()}",
+        f"axe Y jusqu'à {choix_y_max_dh.value} °C·h",
+    ]})
+
     mo.vstack([
         _graphique,
         mo.Html('<div class="pas-imprime">' + mo.md(f"**Tableau ({'Q1 / médiane / Q3 par zone climatique' if _PAR_BATIMENT else 'statistiques par zone climatique et type de zone'})**").text + '</div>'),
         boutons_export(_export_tableau, f"{_nom}_tableau"),
         mo.Html('<div class="pas-imprime">' + mo.md(f"**Export brut (une ligne par {_UNITE} tracé{'' if _PAR_BATIMENT else 'e'})**").text + '</div>'),
         boutons_export(_export_brut, f"{_nom}_brut"),
+        _encadre_filtres,
     ])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_10(choix_unite_dh, choix_y_max_dh, resume_filtres):
-    # Résumé des filtres actifs du graphique 10, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    # Dernière ligne : paramètres propres au graphique 10 (unité, zoom Y).
-    resume_filtres(parametres_graphique={"Graphique 10": [
-        f"unité : {choix_unite_dh.value.lower()}",
-        f"axe Y jusqu'à {choix_y_max_dh.value} °C·h",
-    ]})
-    return
-
-
-@app.cell(hide_code=True)
-def saut_page_11(mo):
-    # Saut de page à l'impression avant le graphique 11 (aucun effet à l'écran ;
-    # règle `.saut-page` dans la cellule `style_impression`).
-    mo.Html('<div class="saut-page"></div>')
     return
 
 
@@ -4737,6 +4469,7 @@ def param_graphique_11(mo, panneau_filtres):
     )
 
     mo.vstack([
+        mo.Html('<div class="saut-page"></div>'),   # nouvelle page à l'impression (cf. style_impression)
         mo.Html('<div class="pas-imprime">' + mo.md("### Paramètres du graphique 11").text + '</div>'),
         panneau_filtres(
             {"Graphique 11": choix_nb_categories_10},
@@ -4761,6 +4494,10 @@ def graphique_11(
     masquer_non_renseignes_10,
     mo,
     pl,
+    resume_filtres,
+    PALETTE_HUB,
+    POLICE_GRAPHIQUES,
+    ligne_effectif,
 ):
     # ============================================================================
     # CELLULE — Graphique 11 : 4 donuts, répartition (%) des bâtiments par matériau
@@ -4799,15 +4536,16 @@ def graphique_11(
     # --- Couleurs : FIXES par catégorie (une couleur ne change pas quand on masque
     #     « Autre » ou qu'on change le filtre). Règles testées dans l'ordre sur le libellé
     #     en minuscules : (mots-clés, couleur) ; sinon couleur de repli (cycle).
-    _GRIS_AUTRE, _GRIS_VIDE, _GRIS_REGROUPE = "#A6A6A6", "#D9D9D9", "#C9CED8"
+    _GRIS_AUTRE, _GRIS_VIDE, _GRIS_REGROUPE = PALETTE_HUB["non_renseigne"], PALETTE_HUB["non_renseigne_clair"], "#C9CED8"
     _REGLES_COULEUR_MATERIAUX = [
-        (["chanvre", "paille", "terre crue"], "#7FB069"),            # biosourcés : vert
-        (["bois"], "#A9D18E"),                                       # bois : vert pâle
-        (["mixte"], "#5E8C6A"),                                      # mixtes : vert-gris
-        (["terre cuite", "brique"], "#C8553D"),                      # terre cuite : terracotta
-        (["parpaing", "bloc", "hourdis", "poutrelle"], "#4A6FA5"),   # béton préfabriqué : bleu moyen
-        (["béton", "beton", "dalle"], "#283246"),                    # béton : bleu nuit
-        (["acier", "métal", "metal"], "#6F86A8"),                    # acier : bleu-gris
+        # Couleurs de la charte HUB (graphique « matériaux » du modèle), cf. PALETTE_HUB
+        (["chanvre", "paille", "terre crue"], PALETTE_HUB["base"]["vert_sauge"]),      # biosourcés
+        (["bois"], PALETTE_HUB["base"]["vert_eau"]),                                   # bois : vert pâle
+        (["mixte"], PALETTE_HUB["lots"][10]),                                          # mixtes : vert sauge clair
+        (["terre cuite", "brique"], PALETTE_HUB["materiaux"]["Terre cuite"]),          # terre cuite : saumon
+        (["parpaing", "bloc", "hourdis", "poutrelle"], PALETTE_HUB["base"]["bleu_ardoise"]),  # béton en blocs
+        (["béton", "beton", "dalle"], PALETTE_HUB["materiaux"]["Béton"]),              # béton : bleu nuit
+        (["acier", "métal", "metal"], PALETTE_HUB["materiaux"]["Acier"]),              # acier : gris foncé
         (["pierre"], "#D8C3A5"),                                     # pierre : sable
     ]
     _REGLES_COULEUR_GENERATEURS = [                                  # palette distincte des 3 autres donuts
@@ -4819,11 +4557,11 @@ def graphique_11(
         (["réseau", "reseau", "urbain"], "#9B8AC4"),                 # réseau de chaleur : lavande
         (["pac"], "#3A9CA6"),                                        # autres PAC : turquoise moyen
     ]
-    _COULEURS_REPLI = ["#B5838D", "#E9C46A", "#9C89B8", "#F4A261", "#2A9D8F"]
+    _COULEURS_REPLI = PALETTE_HUB["suite"][1:] + [PALETTE_HUB["base"]["jaune_hub"]]   # libellés imprévus
 
     # --- Mise en page (pixels) ------------------------------------------------------------
     _LARGEUR, _HAUTEUR = 1100, 1100
-    _MARGE_HAUT, _MARGE_BAS, _MARGE_GAUCHE, _MARGE_DROITE = 100, 20, 30, 30
+    _MARGE_HAUT, _MARGE_BAS, _MARGE_GAUCHE, _MARGE_DROITE = 150, 20, 30, 30
     _COLONNES_X = {0: (0.05, 0.45), 1: (0.55, 0.95)}              # emprise horizontale d'un donut (0-1)
     _LIGNES_PX = {                                                 # positions (px depuis le haut de la figure)
         1: dict(titre=125, donut=(185, 425), legende=445),         # ligne du haut
@@ -4834,7 +4572,7 @@ def graphique_11(
     _SEUIL_NOM_PCT = 10               # au-dessus de ce pourcentage, le nom de la catégorie s'ajoute au %
     _LARGEUR_NOM_ETIQUETTE = 16       # nombre de caractères par ligne du nom (retour à la ligne au-delà)
     _LONGUEUR_MAX_LIBELLE = 34        # libellés de légende tronqués (le survol donne le texte complet)
-    _POLICE = "Calibri, Carlito, Arial"
+    _POLICE = POLICE_GRAPHIQUES          # police de la charte HUB
 
     # ============================================================================
     # 1. DONNÉES : filtres communs, puis une colonne « libellé propre » par donut
@@ -5013,6 +4751,7 @@ def graphique_11(
         font=dict(family=_POLICE),
         title=dict(
             text=f"<b>Graphique 11 — {GRAPHIQUES[11]} — {_USAGE}</b><br>"
+                 f"{ligne_effectif(_df.height, 'bâtiments', 'effectif de chaque donut au centre')}<br>"
                  f"<sup>{SOUS_TITRE_FILTRES} — {_non_renseignes_txt}</sup>",
             font=dict(size=18),
         ),
@@ -5021,16 +4760,11 @@ def graphique_11(
 
     _graphique = mo.ui.plotly(_fig, config=CONFIG_PLOTLY)
 
+    # --- Encadré des filtres actifs, affiché SOUS le graphique (et imprimé) ----------
+    _encadre_filtres = resume_filtres(avec_inconnus=False)
+
     # Export : les données TRACÉES (donut, catégorie, nombre de bâtiments, %, couleur)
-    mo.vstack([_graphique, boutons_export(pl.concat(_export), "graphique_11_repartition_choix_constructifs")])
-    return
-
-
-@app.cell(hide_code=True)
-def resume_filtres_graphique_11(resume_filtres):
-    # Résumé des filtres actifs du graphique 11, placé SOUS le graphique (cellule
-    # séparée : il lit les valeurs des widgets, alors que le panneau reste statique).
-    resume_filtres(avec_inconnus=False)
+    mo.vstack([_graphique, boutons_export(pl.concat(_export), "graphique_11_repartition_choix_constructifs"), _encadre_filtres])
     return
 
 
@@ -5146,37 +4880,6 @@ def apercu_tables(bouton_apercu_tables, mo, noms_tables, pl, turso_conn):
     return
 
 
-# Cellule désactivée : button_run_analyse_comp et table_a_afficher ne sont plus définis nulle part.
-@app.cell(disabled=True, hide_code=True)
-def _(button_run_analyse_comp, mo, pl, table_a_afficher, turso_conn):
-    #resultat du click to run qui affiche le tableau
-    # if the button hasn't been clicked, don't run.
-    mo.stop(not button_run_analyse_comp.value)
-
-    _table_name = table_a_afficher.value
-
-    _cursor = turso_conn.execute(f"SELECT * FROM {_table_name}")
-    _col_names = [desc[0] for desc in _cursor.description]
-    _data = _cursor.fetchall()
-
-    _columns_summary = []
-    for _i, col_name in enumerate(_col_names):
-        col_values = [row[_i] for row in _data]
-        non_null_count = sum(1 for v in col_values if v is not None)
-        premiere_valeur_non_nulle = next((v for v in col_values if v is not None), None)
-        col_type = type(premiere_valeur_non_nulle).__name__ if premiere_valeur_non_nulle is not None else "unknown"
-        first_2 = col_values[:2]
-        _columns_summary.append({
-            "Colonne": col_name,
-            "Type": col_type,
-            "Nombre d'éléments": non_null_count,
-            "1ère valeur": str(first_2[0]) if len(first_2) > 0 else "",
-            "2ème valeur": str(first_2[1]) if len(first_2) > 1 else "",
-        })
-
-    _summary_df = pl.DataFrame(_columns_summary)
-    mo.ui.table(_summary_df, show_download=False)
-    return
 
 
 if __name__ == "__main__":
