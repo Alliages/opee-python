@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "anywidget",
-#     "libsql-experimental==0.0.55",
+#     "libsql==0.1.11",
 #     "plotly",
 #     "polars",
 #     "xlsxwriter==3.2.9",
@@ -38,11 +38,13 @@ def entete_et_imports():
     TITRE = "Analyse RE2028"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.59"          # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "15/10/2026 11:00"
+    VERSION = "0.60"          # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "03/11/2026 04:09"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Impression (copie de OPEE_by_GM v0.99d) : panneaux de filtres, commandes et boutons "
+        (VERSION, "Connexion à la base : bibliothèque libsql 0.1.11 à la place de libsql-experimental 0.0.55 "
+                  "(sans wheel Windows), même interface ; le notebook s'exécute aussi sous Windows"),
+        ("0.59", "Impression (copie de OPEE_by_GM v0.99d) : panneaux de filtres, commandes et boutons "
                   "« Télécharger en CSV / JSON » non imprimés (filtres actifs conservés), statistiques et aperçu "
                   "du contrôle du socle non imprimés, leviers de l'Analyse5 et période de l'Analyse2 écrits en "
                   "clair à l'impression, en-tête réduit à la largeur de la page ; bouton « Download » des tableaux retiré"),
@@ -457,7 +459,9 @@ def creation_connect(champ_jeton, mo):
     # seul le nombre de tables est affiché).
     # ============================================================================
     import os as _os
-    import libsql_experimental as libsql
+    # libsql (successeur de libsql-experimental, même interface DB-API) :
+    # wheels Windows, Linux (molab) et macOS — COPIE DE OPEE_by_GM v0.99k
+    import libsql
 
     # ---- Variables ---------------------------------------------------------
     _URL_BASE = "libsql://opee-alliages.aws-eu-west-1.turso.io"

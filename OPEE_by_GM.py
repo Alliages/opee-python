@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = [
 #     "anywidget",
-#     "libsql-experimental==0.0.55",
+#     "libsql==0.1.11",
 #     "plotly",
 #     "polars",
 #     "xlsxwriter==3.2.9",
@@ -37,11 +37,12 @@ def entete_et_imports():
     TITRE = "Analyse des projets RE2020"
     BASELINE_Y = 145          # ordonnée de la 1re ligne de la baseline (SVG 1000x500) : réduire pour la remonter
     SIGNATURE = "des prescripteurs bas carbone"
-    VERSION = "0.99j"         # à ajuster : +0.01 à chaque édition du script
-    DATE_EDITION = "22/10/2026 23:07"
+    VERSION = "0.99k"         # à ajuster : +0.01 à chaque édition du script
+    DATE_EDITION = "03/11/2026 04:09"
     HISTORIQUE_VERSIONS = [
         # (version, synthèse des changements), la plus récente en premier
-        (VERSION, "Charte HUB (template_hub.pptx) : palette unique PALETTE_HUB et police Aptos pour tous les graphiques ; filtre de surface unique (curseur sref 0 à 5 000 m², pas de 50, 150 à 5 000 par défaut) toujours visible, valable pour tous les usages (sref reconstituée en logement collectif, intervalles des maisons individuelles, valeur de l'enseignement ; sans effet pour les bureaux) — corrige l'erreur des usages autres que le logement collectif ; filtre « type d'attestation » supprimé (l'open data ne publie que des DAACT) ; effectif tracé affiché sur chaque graphique ; 70 -> 40 cellules (sauts de page dans les cellules de paramètres, encadré des filtres actifs dans les cellules graphiques, code mort supprimé) ; constantes et filtres communs placés avant le graphique 1 ; impression PDF : graphiques à largeur automatique figés avant réduction (n'étaient plus coupés à droite, graphiques 7 à 9) ; graphique 1 en largeur automatique (titre coupé)"),
+        (VERSION, "Connexion à la base : bibliothèque libsql 0.1.11 à la place de libsql-experimental 0.0.55 (sans wheel Windows), même interface ; le notebook s'exécute aussi sous Windows"),
+        ("0.99j", "Charte HUB (template_hub.pptx) : palette unique PALETTE_HUB et police Aptos pour tous les graphiques ; filtre de surface unique (curseur sref 0 à 5 000 m², pas de 50, 150 à 5 000 par défaut) toujours visible, valable pour tous les usages (sref reconstituée en logement collectif, intervalles des maisons individuelles, valeur de l'enseignement ; sans effet pour les bureaux) — corrige l'erreur des usages autres que le logement collectif ; filtre « type d'attestation » supprimé (l'open data ne publie que des DAACT) ; effectif tracé affiché sur chaque graphique ; 70 -> 40 cellules (sauts de page dans les cellules de paramètres, encadré des filtres actifs dans les cellules graphiques, code mort supprimé) ; constantes et filtres communs placés avant le graphique 1 ; impression PDF : graphiques à largeur automatique figés avant réduction (n'étaient plus coupés à droite, graphiques 7 à 9) ; graphique 1 en largeur automatique (titre coupé)"),
         ("0.99i", "Tous les graphiques : encadré des filtres actifs placé SOUS le graphique (ordre filtres → graphique → filtres actifs). Impression : page de garde (visuel, version, encarts OPEE, liens vers le HUB, liste des graphiques), puis une page par graphique (graphique + filtres actifs) ; masqués en plus : historique des versions, jeton et tables, typologie, rappel du filtre de surface, intitulés d'export, aperçu des tables ; saut de page avant le graphique 1 ; page de garde tenue sur une page (visuel du HUB réduit à 540 px, marges des cellules masquées supprimées à l'impression)"),
         ("0.99h", "Graphique 10 (DH) : choix de l'unité « Zone du bâtiment » (comme avant) ou « Bâtiment » (dh_batiment, sans séparation traversant / non traversant) ; exports : tableau (en mode bâtiment, Q1 / médiane / Q3 par zone climatique) + export brut (une ligne par point tracé) ; filtres actifs sous le graphique"),
         ("0.99g", "Graphique 6 : filtre des seuils IC construction atteints (RE2022, RE2025, RE2028, RE2031) ; sous le graphique, en gros chiffres, part des FDES / PEP (individuelles, collectives, configurées…) face aux DED + forfaitaire pour le gros œuvre (lots 2-3, bleu), le second œuvre (lots 4-7, rouge) et les lots techniques (lots 8-13, vert), couleurs du graphique 3 ; encadré des filtres actifs placé sous le graphique"),
@@ -532,7 +533,9 @@ def saisie_jeton(mo):
 def creation_connect(champ_jeton, mo):
     #creation de turso_conn
     import os as _os
-    import libsql_experimental as libsql
+    # libsql (successeur de libsql-experimental, même interface DB-API) :
+    # wheels Windows, Linux (molab) et macOS, contrairement à libsql-experimental
+    import libsql
 
     turso_token = _os.environ.get("TURSO_TOKEN") or champ_jeton.value
     mo.stop(not turso_token, mo.md("*Saisir le jeton Turso ci-dessus pour lancer le notebook.*"))
